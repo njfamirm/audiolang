@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Print a clean unified diff of the working tree, excluding noise that wastes
-# tokens in AI chats: lockfiles, build output, generated diff artifacts and
-# binaries. Also saves the same text to ./ai-diff.patch. Invoke via /diff.
+# Collect a clean unified diff of the working tree into ./ai-diff.patch,
+# excluding noise that wastes tokens in AI chats: lockfiles, build output,
+# generated diff artifacts and binaries.
+#
+# Default: write the file and print only a one-line summary (safe to inject
+# into an agent prompt). Pass --print to also dump the full diff to stdout.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+PRINT=0
+[[ "${1:-}" == "--print" ]] && PRINT=1
+OUT=ai-diff.patch
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Not a git repository — nothing to diff." >&2
-  exit 0
+  exit 1
 fi
 
 # Make untracked (non-ignored) files visible to `git diff`.
@@ -27,21 +34,25 @@ EXCLUDES=(
   ':(exclude).opencode/PROGRESS.md'
 )
 
-render() {
+if git --no-pager diff --quiet -- . "${EXCLUDES[@]}"; then
+  : > "$OUT"
+  echo "$OUT: no changes"
+  exit 0
+fi
+
+{
   echo "=== changed files ==="
   git --no-pager diff --stat -- . "${EXCLUDES[@]}"
   echo
   echo "=== diff ==="
   git --no-pager diff --no-color -- . "${EXCLUDES[@]}"
-}
+} > "$OUT"
 
-if git --no-pager diff --quiet -- . "${EXCLUDES[@]}"; then
-  echo "No changes in tracked source files."
-  : > ai-diff.patch
-  exit 0
+files=$(grep -c '^diff --git ' "$OUT" || true)
+lines=$(wc -l < "$OUT" | tr -d ' ')
+
+if [[ $PRINT -eq 1 ]]; then
+  cat "$OUT"
+else
+  echo "$OUT: ${files} file(s) changed, ${lines} lines"
 fi
-
-render | tee ai-diff.patch
-lines=$(wc -l < ai-diff.patch | tr -d ' ')
-echo
-echo "(saved to ai-diff.patch — ${lines} lines)"

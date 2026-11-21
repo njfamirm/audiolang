@@ -1,7 +1,7 @@
 ---
-description: Print a clean diff of changed non-noise files to copy into an AI web chat
+description: Write a clean diff of changed non-noise files to ai-diff.patch (no analysis)
 ---
 
 !`bash scripts/diff.sh`
 
-The diff above is ready to paste into an AI web chat. Do not analyze it, do not edit files, and do not run anything else — reply with one short line confirming it is ready to copy.
+That command already wrote the diff to the file it names. Reply with exactly that one-line summary (the file path and its stats). Do not read, open, print or analyze the file, and do not change anything.
