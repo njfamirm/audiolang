@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "AudioLang — audio-first English learning on Cloudflare Workers + KV + Groq Whisper",
+  "description": "AudioLang — audio-first English learning on Cloudflare Workers + KV + Workers AI Whisper",
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "predev": "mkdir -p web/dist",
@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
     "build": "npm run typecheck && vite build web",
     "deploy": "npm run build && wrangler deploy",
+    "diff": "bash scripts/diff.sh",
     "preview": "vite preview web"
   },
   "dependencies": {
