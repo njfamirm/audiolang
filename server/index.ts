@@ -1,6 +1,15 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { currentModel, explainSentence, hasApiKey } from './ai'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { WORKERS_AI_MODEL, defineWord, explainSentence } from './ai'
+import {
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+  isAuthRequired,
+  signToken,
+  validatePasscode,
+  verifyToken,
+} from './auth'
 import { randomUUID } from './crypto'
 import type { Env } from './env'
 import { FEEDS, buildSegments, fetchEpisodes } from './rss'
@@ -8,15 +17,33 @@ import {
   findLesson,
   load,
   update,
+  upsertVocab,
   type Lesson,
   type Segment,
-  type VocabItem,
 } from './store'
-import { transcribeAudio, transcriptionConfigured } from './transcribe'
+import { distributeWords, transcribeAudio, transcriptionConfigured } from './transcribe'
 
 const app = new Hono<{ Bindings: Env }>()
 
 app.use('/api/*', cors())
+
+/** Routes that stay reachable without a session. Everything else under /api needs one. */
+const PUBLIC_PATHS = new Set([
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/me',
+  '/api/health',
+])
+
+app.use('/api/*', async (c, next) => {
+  if (!isAuthRequired(c.env)) return next()
+  if (PUBLIC_PATHS.has(new URL(c.req.url).pathname)) return next()
+  const token = getCookie(c, SESSION_COOKIE)
+  if (!(await verifyToken(c.env, token))) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+  return next()
+})
 
 app.onError((error, c) => {
   console.error('[api]', error)
@@ -26,13 +53,49 @@ app.onError((error, c) => {
 app.get('/api/health', (c) =>
   c.json({
     ok: true,
-    aiConfigured: hasApiKey(c.env),
+    // Explanations and definitions run on the Workers AI binding.
+    aiConfigured: Boolean(c.env.AI),
     transcriptionConfigured: transcriptionConfigured(c.env),
     whisperConfigured: Boolean(c.env.AI),
-    model: currentModel(c.env),
+    model: WORKERS_AI_MODEL,
     feeds: FEEDS.map((feed) => feed.source),
   }),
 )
+
+// --- Auth ---
+
+app.post('/api/auth/login', async (c) => {
+  const body = await c.req.json<{ passcode?: string }>().catch(() => ({ passcode: '' }))
+  const passcode = (body.passcode ?? '').trim()
+
+  if (!validatePasscode(c.env, passcode)) {
+    return c.json({ error: 'Incorrect passcode' }, 401)
+  }
+
+  if (isAuthRequired(c.env)) {
+    setCookie(c, SESSION_COOKIE, await signToken(c.env), {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: SESSION_TTL_SECONDS,
+    })
+  }
+  return c.json({ ok: true })
+})
+
+app.post('/api/auth/logout', (c) => {
+  deleteCookie(c, SESSION_COOKIE, { path: '/' })
+  return c.json({ ok: true })
+})
+
+app.get('/api/auth/me', async (c) => {
+  const required = isAuthRequired(c.env)
+  const token = getCookie(c, SESSION_COOKIE)
+  const authenticated = !required || (await verifyToken(c.env, token))
+  return c.json({ authenticated, authRequired: required })
+})
+
 
 /**
  * Same-origin audio proxy. Podcast feeds (e.g. BBC) hand out `http://` media
@@ -81,6 +144,66 @@ app.get('/api/audio', async (c) => {
   headers.set('cache-control', 'public, max-age=3600')
 
   return new Response(upstream.body, { status: upstream.status, headers })
+})
+
+/** Parse a single `Range` header into an offset/length slice, or null when unsatisfiable. */
+function parseRange(header: string, size: number): { offset: number; length: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!match) return null
+  const [, startRaw, endRaw] = match
+  if (startRaw === '' && endRaw === '') return null
+
+  let start: number
+  let end: number
+  if (startRaw === '') {
+    const suffix = Number(endRaw)
+    if (!Number.isFinite(suffix) || suffix <= 0) return null
+    start = Math.max(size - suffix, 0)
+    end = size - 1
+  } else {
+    start = Number(startRaw)
+    end = endRaw === '' ? size - 1 : Math.min(Number(endRaw), size - 1)
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return null
+  return { offset: start, length: end - start + 1 }
+}
+
+/**
+ * Frozen audio: stream the exact MP3 bytes that were transcribed, stored in KV, with byte-range
+ * support so seeking works reliably on mobile Chrome/Safari and in the car.
+ */
+app.get('/api/lessons/:id/audio', async (c) => {
+  const id = c.req.param('id')
+  const rangeHeader = c.req.header('range')
+
+  const audio = await c.env.STORE_KV.get(`audio:${id}`, { type: 'arrayBuffer' })
+  if (!audio || audio.byteLength === 0) {
+    return c.json({ error: 'Audio not found for this lesson.' }, 404)
+  }
+
+  const size = audio.byteLength
+  const headers = new Headers()
+  headers.set('Content-Type', 'audio/mpeg')
+  headers.set('Accept-Ranges', 'bytes')
+  headers.set('Cache-Control', 'private, max-age=86400')
+  headers.set('ETag', `"${id}-${size}"`)
+
+  if (rangeHeader) {
+    const range = parseRange(rangeHeader, size)
+    if (!range) {
+      headers.set('Content-Range', `bytes */${size}`)
+      return new Response(null, { status: 416, headers })
+    }
+    headers.set('Content-Range', `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`)
+    headers.set('Content-Length', String(range.length))
+    return new Response(audio.slice(range.offset, range.offset + range.length), {
+      status: 206,
+      headers,
+    })
+  }
+
+  headers.set('Content-Length', String(size))
+  return new Response(audio, { status: 200, headers })
 })
 
 app.get('/api/lessons', async (c) => {
@@ -174,8 +297,8 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
   const lesson = findLesson(store, id)
   if (!lesson) return c.json({ error: 'Lesson not found' }, 404)
 
-  // Cache hit: the full timestamped transcript is already stored. Zero cost.
-  if (lesson.transcribed) {
+  // Cache hit: transcript + frozen audio already stored. Zero AI cost, zero KV write.
+  if (lesson.transcribed && lesson.audioCached) {
     return c.json({ lesson, cached: true })
   }
 
@@ -203,6 +326,16 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
     return c.json({ error: 'The model returned no speech segments for this audio.' }, 502)
   }
 
+  // Freeze the exact bytes that were sent to Whisper so playback and timestamps never drift
+  // (BBC-style dynamic ad insertion serves different ad lengths on each request).
+  let audioCached = true
+  try {
+    await c.env.STORE_KV.put(`audio:${id}`, result.audio)
+  } catch (error) {
+    audioCached = false
+    console.error('[kv] Could not freeze audio:', error)
+  }
+
   const updated = await update(c.env, (current) => {
     const target = findLesson(current, id)
     if (!target) return null
@@ -212,10 +345,12 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
       text: segment.text,
       startSec: segment.start,
       endSec: segment.end,
+      words: segment.words,
       explanationFa: null,
     }))
     target.segments = segments
     target.transcribed = true
+    target.audioCached = audioCached
     target.timingApprox = result.timingApprox
     return target
   })
@@ -257,10 +392,13 @@ app.post('/api/lessons/:id/align', async (c) => {
       const start = (cursor / total) * duration
       cursor += weights[index]
       const end = (cursor / total) * duration
+      const startSec = Number(start.toFixed(2))
+      const endSec = Number(end.toFixed(2))
       return {
         ...segment,
-        startSec: Number(start.toFixed(2)),
-        endSec: Number(end.toFixed(2)),
+        startSec,
+        endSec,
+        words: distributeWords(segment.text, startSec, endSec),
       }
     })
     target.transcribed = true
@@ -306,19 +444,42 @@ app.post('/api/vocab', async (c) => {
   const word = body.word?.trim()
   if (!word) return c.json({ error: 'word is required' }, 400)
 
-  const item: VocabItem = {
-    id: randomUUID(),
-    word,
-    contextSentence: body.contextSentence?.trim() ?? '',
-    meaningFa: body.meaningFa?.trim() ?? '',
-    createdAt: new Date().toISOString(),
+  const result = await update(c.env, (store) => {
+    const item = upsertVocab(store, {
+      word,
+      contextSentence: body.contextSentence ?? '',
+      meaningFa: body.meaningFa ?? '',
+    })
+    return { item, vocab: store.vocab }
+  })
+  return c.json(result, 201)
+})
+
+/** Resolve a one-line Persian meaning via OpenRouter, then save it immediately. */
+app.post('/api/vocab/define', async (c) => {
+  const body = await c.req.json<{ word?: string; contextSentence?: string }>()
+  const word = body.word?.trim()
+  if (!word) return c.json({ error: 'word is required' }, 400)
+
+  let meaningFa: string
+  try {
+    meaningFa = await defineWord(c.env, word, body.contextSentence?.trim() ?? '')
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Could not define this word' },
+      502,
+    )
   }
 
-  const vocab = await update(c.env, (store) => {
-    store.vocab.unshift(item)
-    return store.vocab
+  const result = await update(c.env, (store) => {
+    const item = upsertVocab(store, {
+      word,
+      contextSentence: body.contextSentence ?? '',
+      meaningFa,
+    })
+    return { item, vocab: store.vocab }
   })
-  return c.json({ item, vocab }, 201)
+  return c.json(result, 201)
 })
 
 app.delete('/api/vocab/:id', async (c) => {
@@ -328,6 +489,17 @@ app.delete('/api/vocab/:id', async (c) => {
     return store.vocab
   })
   return c.json({ vocab })
+})
+
+/**
+ * SPA fallback: serve built static assets, and hand any unknown non-API path to index.html so
+ * client-side routes like `/lesson/:id` survive a hard reload or a shared deep link.
+ */
+app.get('*', async (c) => {
+  if (c.req.path.startsWith('/api/')) return c.notFound()
+  const asset = await c.env.ASSETS.fetch(c.req.raw)
+  if (asset.status !== 404) return asset
+  return c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url), c.req.raw))
 })
 
 export default app

@@ -1,5 +1,7 @@
 import initialStore from '../data/store.json'
+import { randomUUID } from './crypto'
 import type { Env } from './env'
+import type { WordTiming } from './transcribe'
 
 /**
  * Cloudflare KV persistence layer.
@@ -21,6 +23,8 @@ export interface Segment {
   startSec?: number
   /** End of the sentence in the audio (seconds), from Whisper. */
   endSec?: number
+  /** Word-level timings inside this sentence, for word-by-word highlighting. */
+  words?: WordTiming[]
   /** Cached AI response. `undefined`/`null` until requested once. */
   explanationFa?: ExplanationFa | null
 }
@@ -38,6 +42,8 @@ export interface Lesson {
   segments: Segment[]
   /** True once the full transcript with timestamps has been stored. */
   transcribed?: boolean
+  /** True once the exact transcribed MP3 bytes are frozen in KV (prevents audio/transcript drift). */
+  audioCached?: boolean
   /** True when sentence timings were estimated rather than spoken precisely. */
   timingApprox?: boolean
 }
@@ -66,6 +72,7 @@ function normalize(raw: unknown): Store {
     if (!Array.isArray(lesson.segments)) lesson.segments = []
     if (typeof lesson.lastPositionSec !== 'number') lesson.lastPositionSec = 0
     if (typeof lesson.transcribed !== 'boolean') lesson.transcribed = false
+    if (typeof lesson.audioCached !== 'boolean') lesson.audioCached = false
   }
   return { lessons, vocab }
 }
@@ -102,4 +109,36 @@ export async function update<T>(
 
 export function findLesson(store: Store, id: string): Lesson | undefined {
   return store.lessons.find((lesson) => lesson.id === id)
+}
+
+/** Case-insensitive vocabulary lookup. */
+export function findVocab(store: Store, word: string): VocabItem | undefined {
+  const needle = word.trim().toLowerCase()
+  return store.vocab.find((item) => item.word.trim().toLowerCase() === needle)
+}
+
+/**
+ * Insert a word or update the existing (case-insensitive) entry in place.
+ * Returns the stored item; `store.vocab` is kept de-duplicated.
+ */
+export function upsertVocab(
+  store: Store,
+  payload: { word: string; contextSentence: string; meaningFa: string },
+): VocabItem {
+  const word = payload.word.trim()
+  const existing = findVocab(store, word)
+  if (existing) {
+    if (payload.meaningFa.trim()) existing.meaningFa = payload.meaningFa.trim()
+    if (payload.contextSentence.trim()) existing.contextSentence = payload.contextSentence.trim()
+    return existing
+  }
+  const item: VocabItem = {
+    id: randomUUID(),
+    word,
+    contextSentence: payload.contextSentence.trim(),
+    meaningFa: payload.meaningFa.trim(),
+    createdAt: new Date().toISOString(),
+  }
+  store.vocab.unshift(item)
+  return item
 }

@@ -2,18 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AddLessonModal from './components/AddLessonModal'
 import DrivingMode from './components/DrivingMode'
 import LessonList from './components/LessonList'
+import LoginScreen from './components/LoginScreen'
 import StudyMode from './components/StudyMode'
+import VocabList from './components/VocabList'
+import { api, setUnauthorizedHandler } from './api'
+import { navigate, parsePath, useRoutePath } from './router'
 import type { ExplanationFa, Lesson, Mode, PlayerApi, VocabItem } from './types'
 
 const SPEEDS: number[] = [0.75, 1, 1.25]
 
-async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers)
-  if (init.body) headers.set('Content-Type', 'application/json')
-  const response = await fetch(path, { ...init, headers })
-  const payload = (await response.json().catch(() => ({}))) as { error?: string }
-  if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status})`)
-  return payload as T
+interface AuthState {
+  checked: boolean
+  required: boolean
+  authenticated: boolean
 }
 
 export default function App() {
@@ -21,12 +22,19 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const currentIdRef = useRef<string | null>(null)
   const pendingSeekRef = useRef(0)
+  const seekAppliedRef = useRef<string | null>(null)
   const skipRef = useRef<(delta: number) => void>(() => {})
+  /** Last known playback state, used to survive the live-URL → frozen-KV source swap. */
+  const mediaStateRef = useRef({ time: 0, playing: false })
+  const resumeAfterSwapRef = useRef(false)
 
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [vocab, setVocab] = useState<VocabItem[]>([])
-  const [currentId, setCurrentId] = useState<string | null>(null)
-  const [mode, setMode] = useState<Mode>('study')
+  const [auth, setAuth] = useState<AuthState>({
+    checked: false,
+    required: false,
+    authenticated: false,
+  })
 
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -42,10 +50,26 @@ export default function App() {
   const [aiConfigured, setAiConfigured] = useState(true)
   const [transcriptionConfigured, setTranscriptionConfigured] = useState(true)
 
+  // --- URL routing ---
+  const path = useRoutePath()
+  const route = useMemo(() => parsePath(path), [path])
+  const currentId = route.name === 'lesson' || route.name === 'drive' ? route.id : null
+  const mode: Mode = route.name === 'drive' ? 'driving' : 'study'
+
   const currentLesson = useMemo(
     () => lessons.find((lesson) => lesson.id === currentId) ?? null,
     [lessons, currentId],
   )
+
+  /**
+   * Frozen audio (exact transcribed bytes) comes from KV with Range support; otherwise we keep
+   * proxying the live feed URL server-side so `http://` podcast media still plays over HTTPS.
+   */
+  const audioSrc = currentLesson
+    ? currentLesson.audioCached
+      ? `/api/lessons/${currentLesson.id}/audio`
+      : `/api/audio?url=${encodeURIComponent(currentLesson.audioUrl)}`
+    : undefined
 
   /** Sentence currently being played, based on Whisper timestamps. */
   const activeSegment = useMemo(() => {
@@ -60,9 +84,38 @@ export default function App() {
     )
   }, [currentLesson, currentTime])
 
-  // --- Boot: load lessons, vocab and health ---
+  // Any 401 from the API drops us straight back to the login screen.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuth({ checked: true, required: true, authenticated: false }))
+    return () => setUnauthorizedHandler(null)
+  }, [])
+
+  // --- Boot: discover auth mode first ---
   useEffect(() => {
     let cancelled = false
+    void (async () => {
+      try {
+        const me = await api<{ authenticated: boolean; authRequired: boolean }>('/api/auth/me')
+        if (cancelled) return
+        setAuth({
+          checked: true,
+          required: me.authRequired,
+          authenticated: me.authenticated || !me.authRequired,
+        })
+      } catch {
+        if (!cancelled) setAuth({ checked: true, required: false, authenticated: true })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // --- Load data once authenticated ---
+  useEffect(() => {
+    if (!auth.checked || !auth.authenticated) return
+    let cancelled = false
+    setBooted(false)
     void (async () => {
       try {
         const [lessonData, vocabData, health] = await Promise.all([
@@ -75,6 +128,7 @@ export default function App() {
         if (cancelled) return
         setLessons(lessonData.lessons ?? [])
         setVocab(vocabData.vocab ?? [])
+        setFatal(null)
         if (health) {
           setAiConfigured(Boolean(health.aiConfigured))
           setTranscriptionConfigured(Boolean(health.transcriptionConfigured))
@@ -90,7 +144,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [auth.checked, auth.authenticated])
 
   useEffect(() => {
     if (!toast) return
@@ -142,14 +196,35 @@ export default function App() {
     return () => window.removeEventListener('pagehide', flush)
   }, [])
 
-  // Remember where to resume when the lesson changes.
+  /**
+   * React to the lesson changing from the URL: save the outgoing lesson's position and pause
+   * only when we truly leave a lesson. Switching `/lesson/x` ↔ `/lesson/x/drive` keeps playing.
+   */
   useEffect(() => {
+    const previous = currentIdRef.current
+    if (previous && previous !== currentId) {
+      const audio = audioRef.current
+      if (audio && Number.isFinite(audio.currentTime)) {
+        void saveProgress(previous, Math.round(audio.currentTime))
+      }
+    }
+    currentIdRef.current = currentId
+    if (!currentId) audioRef.current?.pause()
+  }, [currentId, saveProgress])
+
+  // Remember where to resume once the lesson object is available (handles deep links/reloads).
+  useEffect(() => {
+    if (!currentId) {
+      seekAppliedRef.current = null
+      return
+    }
     const lesson = lessons.find((item) => item.id === currentId)
-    pendingSeekRef.current = lesson?.lastPositionSec ?? 0
+    if (!lesson || seekAppliedRef.current === currentId) return
+    seekAppliedRef.current = currentId
+    pendingSeekRef.current = lesson.lastPositionSec ?? 0
     setCurrentTime(0)
     setDuration(0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentId])
+  }, [currentId, lessons])
 
   // --- Player controls ---
   const play = useCallback(() => {
@@ -219,6 +294,14 @@ export default function App() {
     }
     pendingSeekRef.current = 0
     setCurrentTime(audio.currentTime)
+
+    // After a live-URL → frozen-KV source swap, resume where the listener left off.
+    if (resumeAfterSwapRef.current) {
+      resumeAfterSwapRef.current = false
+      void audio.play().catch(() => {
+        // Autoplay may be blocked; the user can tap play.
+      })
+    }
   }, [rate])
 
   // --- Media Session API (car steering wheel + Bluetooth headsets) ---
@@ -253,32 +336,6 @@ export default function App() {
   }, [playing])
 
   // --- Data actions ---
-  const openLesson = useCallback(
-    (id: string) => {
-      const audio = audioRef.current
-      const previousId = currentIdRef.current
-      if (audio && previousId && previousId !== id && Number.isFinite(audio.currentTime)) {
-        void saveProgress(previousId, Math.round(audio.currentTime))
-      }
-      currentIdRef.current = id
-      setCurrentId(id)
-      setMode('study')
-    },
-    [saveProgress],
-  )
-
-  const exitLesson = useCallback(() => {
-    const audio = audioRef.current
-    const id = currentIdRef.current
-    if (audio && id && Number.isFinite(audio.currentTime)) {
-      void saveProgress(id, Math.round(audio.currentTime))
-    }
-    audio?.pause()
-    currentIdRef.current = null
-    setCurrentId(null)
-    setMode('study')
-  }, [saveProgress])
-
   const addBookmark = useCallback(async (): Promise<number | null> => {
     const audio = audioRef.current
     const id = currentIdRef.current
@@ -304,6 +361,18 @@ export default function App() {
         `/api/lessons/${lessonId}/transcribe`,
         { method: 'POST', body: JSON.stringify({ durationSec: Math.round(durationSec) }) },
       )
+
+      // If the open lesson just got its audio frozen, preserve position + playback across the
+      // source swap from the live feed URL to the KV route.
+      if (data.lesson.audioCached && currentIdRef.current === lessonId) {
+        const audio = audioRef.current
+        pendingSeekRef.current =
+          audio && Number.isFinite(audio.currentTime)
+            ? audio.currentTime
+            : mediaStateRef.current.time
+        resumeAfterSwapRef.current = audio ? !audio.paused : mediaStateRef.current.playing
+      }
+
       setLessons((previous) =>
         previous.map((lesson) => (lesson.id === lessonId ? data.lesson : lesson)),
       )
@@ -365,15 +434,34 @@ export default function App() {
 
   const saveWord = useCallback(
     async (payload: { word: string; contextSentence: string; meaningFa: string }) => {
-      const data = await api<{ vocab: VocabItem[] }>('/api/vocab', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      setVocab(data.vocab)
-      setToast(`Saved “${payload.word}” to vocabulary`)
+      try {
+        const data = await api<{ vocab: VocabItem[] }>('/api/vocab', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setVocab(data.vocab)
+        setToast(`Saved “${payload.word}” to vocabulary`)
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : 'Could not save word.')
+        throw error
+      }
     },
     [],
   )
+
+  const defineWord = useCallback(async (word: string, contextSentence: string) => {
+    try {
+      const data = await api<{ vocab: VocabItem[] }>('/api/vocab/define', {
+        method: 'POST',
+        body: JSON.stringify({ word, contextSentence }),
+      })
+      setVocab(data.vocab)
+      setToast(`Saved “${word}” to vocabulary`)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not translate this word.')
+      throw error
+    }
+  }, [])
 
   const deleteVocab = useCallback(async (id: string) => {
     const data = await api<{ vocab: VocabItem[] }>(`/api/vocab/${id}`, { method: 'DELETE' })
@@ -403,32 +491,121 @@ export default function App() {
       })
       setLessons(data.lessons)
       setAddOpen(false)
-      openLesson(data.lesson.id)
+      navigate(`/lesson/${data.lesson.id}`)
       setToast('Custom lesson added')
     },
-    [openLesson],
+    [],
   )
 
+  const login = useCallback(async (passcode: string) => {
+    await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ passcode }) })
+    setAuth({ checked: true, required: true, authenticated: true })
+  }, [])
+
+  const logout = useCallback(async () => {
+    try {
+      await api('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // Clearing the cookie is best-effort; still lock the UI.
+    }
+    audioRef.current?.pause()
+    setAuth((previous) => ({ ...previous, authenticated: false }))
+  }, [])
+
+  /** Live audio clock for word highlighting — bypasses React's 4 Hz timeupdate throttling. */
+  const now = useCallback(() => {
+    const audio = audioRef.current
+    return audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0
+  }, [])
+
   const player: PlayerApi = useMemo(
-    () => ({ playing, currentTime, duration, rate, play, toggle, seek, skip, cycleRate }),
-    [playing, currentTime, duration, rate, play, toggle, seek, skip, cycleRate],
+    () => ({ playing, now, currentTime, duration, rate, play, toggle, seek, skip, cycleRate }),
+    [playing, now, currentTime, duration, rate, play, toggle, seek, skip, cycleRate],
   )
+
+  const renderLesson = () => {
+    if (!currentLesson) {
+      return (
+        <div className="mx-auto max-w-xl px-4 py-24 text-center">
+          <h1 className="text-lg font-medium text-ink">Lesson not found</h1>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="mt-4 rounded-sm border border-line px-4 py-2 text-sm text-muted transition-colors hover:border-neutral-500 hover:text-ink"
+          >
+            ← Library
+          </button>
+        </div>
+      )
+    }
+
+    if (mode === 'driving') {
+      return (
+        <DrivingMode
+          lesson={currentLesson}
+          player={player}
+          activeSegment={activeSegment}
+          onExit={() => navigate('/')}
+          onModeChange={() => navigate(`/lesson/${currentLesson.id}`)}
+          onAddBookmark={addBookmark}
+        />
+      )
+    }
+
+    return (
+      <StudyMode
+        lesson={currentLesson}
+        player={player}
+        activeSegmentId={activeSegment?.id ?? null}
+        aiConfigured={aiConfigured}
+        transcriptionConfigured={transcriptionConfigured}
+        transcribing={transcribingId === currentLesson.id}
+        onExit={() => navigate('/')}
+        onModeChange={() => navigate(`/lesson/${currentLesson.id}/drive`)}
+        onAddBookmark={addBookmark}
+        onTranscribe={() => void transcribe(currentLesson.id, duration)}
+        onAlign={() => void align(currentLesson.id, duration)}
+        onExplain={explain}
+        onSaveWord={saveWord}
+        onDefineWord={defineWord}
+      />
+    )
+  }
 
   return (
     <div className="min-h-full">
       <audio
         ref={audioRef}
-        src={currentLesson ? `/api/audio?url=${encodeURIComponent(currentLesson.audioUrl)}` : undefined}
+        src={audioSrc}
         preload="metadata"
         onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onTimeUpdate={() => {
+          const time = audioRef.current?.currentTime ?? 0
+          mediaStateRef.current.time = time
+          setCurrentTime(time)
+        }}
+        onPlay={() => {
+          mediaStateRef.current.playing = true
+          setPlaying(true)
+        }}
+        onPause={() => {
+          mediaStateRef.current.playing = false
+          setPlaying(false)
+        }}
+        onEnded={() => {
+          mediaStateRef.current.playing = false
+          setPlaying(false)
+        }}
         onError={() => setToast('Could not load audio — the source may be offline or blocked.')}
       />
 
-      {!booted ? (
+      {!auth.checked ? (
+        <div className="flex min-h-screen items-center justify-center text-sm text-muted">
+          Loading…
+        </div>
+      ) : auth.required && !auth.authenticated ? (
+        <LoginScreen onSubmit={login} />
+      ) : !booted ? (
         <div className="flex min-h-screen items-center justify-center text-sm text-muted">
           Loading…
         </div>
@@ -440,44 +617,27 @@ export default function App() {
             Make sure both servers are running: <span className="text-ink">npm run dev</span>
           </p>
         </div>
-      ) : currentLesson ? (
-        mode === 'study' ? (
-          <StudyMode
-            lesson={currentLesson}
-            player={player}
-            activeSegmentId={activeSegment?.id ?? null}
-            aiConfigured={aiConfigured}
-            transcriptionConfigured={transcriptionConfigured}
-            transcribing={transcribingId === currentLesson.id}
-            onExit={exitLesson}
-            onModeChange={setMode}
-            onAddBookmark={addBookmark}
-            onTranscribe={() => void transcribe(currentLesson.id, duration)}
-            onAlign={() => void align(currentLesson.id, duration)}
-            onExplain={explain}
-            onSaveWord={saveWord}
-          />
-        ) : (
-          <DrivingMode
-            lesson={currentLesson}
-            player={player}
-            activeSegment={activeSegment}
-            onExit={exitLesson}
-            onModeChange={setMode}
-            onAddBookmark={addBookmark}
-          />
-        )
+      ) : route.name === 'vocab' ? (
+        <VocabList
+          vocab={vocab}
+          onBack={() => navigate('/')}
+          onDelete={(id) => void deleteVocab(id)}
+        />
+      ) : currentId ? (
+        renderLesson()
       ) : (
         <LessonList
           lessons={lessons}
-          vocab={vocab}
+          vocabCount={vocab.length}
           syncing={syncing}
           aiConfigured={aiConfigured}
           transcriptionConfigured={transcriptionConfigured}
-          onOpen={openLesson}
+          authRequired={auth.required}
+          onOpen={(id) => navigate(`/lesson/${id}`)}
+          onOpenVocab={() => navigate('/vocab')}
+          onLock={() => void logout()}
           onSync={() => void syncPodcasts()}
           onAdd={() => setAddOpen(true)}
-          onDeleteVocab={(id) => void deleteVocab(id)}
         />
       )}
 

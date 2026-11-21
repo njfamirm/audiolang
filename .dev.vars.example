@@ -2,7 +2,14 @@
 #   cp .dev.vars.example .dev.vars
 # In production use `wrangler secret put <NAME>` instead.
 
-# OpenRouter powers Persian sentence explanations (chat model).
-# Speech-to-text runs on the Workers AI binding ([ai] in wrangler.toml) — no key needed.
-OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-OPENROUTER_MODEL=deepseek/deepseek-chat
+# All AI (Whisper transcription + Persian explanations + word definitions) runs on the
+# Workers AI binding ([ai] in wrangler.toml). No provider API key is required.
+
+# Access control. Leave UNSET locally to keep the app open in dev.
+# Accepts one passcode or a comma-separated list to share with a few friends:
+#   APP_PASSCODE=secret123
+#   APP_PASSCODE=pass1,pass2,pass3
+# APP_PASSCODE=secret123
+
+# Optional: separate secret for signing session tokens. Falls back to APP_PASSCODE if unset.
+# AUTH_SECRET=change-me-to-a-long-random-string

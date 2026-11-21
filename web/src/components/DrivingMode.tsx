@@ -1,5 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Lesson, Mode, PlayerApi, Segment } from '../types'
+
+interface WakeLockSentinel {
+  release: () => Promise<void>
+  addEventListener: (type: 'release', listener: () => void) => void
+}
+
+interface WakeLockNavigator {
+  wakeLock?: { request: (type: 'screen') => Promise<WakeLockSentinel> }
+}
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -27,6 +36,37 @@ export default function DrivingMode({
   onAddBookmark,
 }: Props) {
   const [confirm, setConfirm] = useState<string | null>(null)
+
+  // Keep the screen awake while driving. Re-acquire when the tab becomes visible again,
+  // because the browser drops the lock when the page is hidden.
+  useEffect(() => {
+    const wakeLock = (navigator as Navigator & WakeLockNavigator).wakeLock
+    if (!wakeLock) return
+    let sentinel: WakeLockSentinel | null = null
+    let active = true
+
+    const acquire = async () => {
+      try {
+        sentinel = await wakeLock.request('screen')
+      } catch {
+        // Not permitted (e.g. low battery) — driving still works, just no wake lock.
+      }
+    }
+
+    const onVisibility = () => {
+      if (active && document.visibilityState === 'visible') void acquire()
+    }
+
+    void acquire()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVisibility)
+      void sentinel?.release().catch(() => {})
+      sentinel = null
+    }
+  }, [])
 
   const handleBookmark = async () => {
     const mark = await onAddBookmark()
@@ -82,6 +122,18 @@ export default function DrivingMode({
         className="mt-3 w-full"
         aria-label="Seek"
       />
+
+      <div className="mt-4 flex min-h-[84px] items-center justify-center rounded-sm border border-line bg-card px-4 py-3">
+        {activeSegment ? (
+          <p className="text-center text-xl font-medium leading-snug text-ink" dir="ltr">
+            {activeSegment.text}
+          </p>
+        ) : (
+          <p className="text-center text-sm text-muted">
+            {lesson.transcribed ? 'Listening…' : 'Sync the transcript to see live sentences.'}
+          </p>
+        )}
+      </div>
 
       <div className="flex flex-1 flex-col justify-center gap-5 py-6">
         <button

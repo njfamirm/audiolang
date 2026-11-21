@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import type { Lesson, VocabItem } from '../types'
+import type { Lesson } from '../types'
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
@@ -17,36 +16,51 @@ function formatDate(iso: string): string {
 
 interface Props {
   lessons: Lesson[]
-  vocab: VocabItem[]
+  vocabCount: number
   syncing: boolean
   aiConfigured: boolean
   transcriptionConfigured: boolean
+  authRequired: boolean
   onOpen: (id: string) => void
+  onOpenVocab: () => void
+  onLock: () => void
   onSync: () => void
   onAdd: () => void
-  onDeleteVocab: (id: string) => void
 }
 
 export default function LessonList({
   lessons,
-  vocab,
+  vocabCount,
   syncing,
   aiConfigured,
   transcriptionConfigured,
+  authRequired,
   onOpen,
+  onOpenVocab,
+  onLock,
   onSync,
   onAdd,
-  onDeleteVocab,
 }: Props) {
-  const [showVocab, setShowVocab] = useState(false)
-
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">AudioLang</h1>
-        <p className="mt-1 text-sm text-muted">
-          Listen while you drive, study when you park. Free podcast feeds — no TTS, no cloud.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">AudioLang</h1>
+            <p className="mt-1 text-sm text-muted">
+              Listen while you drive, study when you park. Free podcast feeds — no TTS, no cloud.
+            </p>
+          </div>
+          {authRequired && (
+            <button
+              type="button"
+              onClick={onLock}
+              className="shrink-0 rounded-sm border border-line px-3 py-1.5 text-xs text-muted transition-colors hover:border-neutral-500 hover:text-ink"
+            >
+              Lock
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -67,10 +81,10 @@ export default function LessonList({
         </button>
         <button
           type="button"
-          onClick={() => setShowVocab((value) => !value)}
+          onClick={onOpenVocab}
           className="ml-auto rounded-sm border border-line px-3 py-2 text-xs text-muted transition-colors hover:border-neutral-500 hover:text-ink"
         >
-          Vocabulary ({vocab.length})
+          Vocabulary ({vocabCount})
         </button>
       </div>
 
@@ -78,58 +92,20 @@ export default function LessonList({
         <div className="mb-5 flex flex-col gap-1 rounded-sm border border-line bg-card p-3 text-xs text-muted">
           {!transcriptionConfigured && (
             <p>
-              Full transcripts are off. Add{' '}
-              <span className="text-ink">OPENROUTER_API_KEY</span> to{' '}
-              <span className="text-ink">.dev.vars</span> to unlock timestamped, synced
+              Full transcripts are off. Add the{' '}
+              <span className="text-ink">[ai]</span> binding in{' '}
+              <span className="text-ink">wrangler.toml</span> to unlock timestamped, synced
               transcripts.
             </p>
           )}
           {!aiConfigured && (
             <p>
-              Persian explanations are off. Add{' '}
-              <span className="text-ink">OPENROUTER_API_KEY</span> to{' '}
-              <span className="text-ink">.dev.vars</span> and restart.
+              Persian explanations are off. Add the{' '}
+              <span className="text-ink">[ai]</span> binding in{' '}
+              <span className="text-ink">wrangler.toml</span> and redeploy.
             </p>
           )}
         </div>
-      )}
-
-      {showVocab && (
-        <section className="mb-6 rounded-sm border border-line bg-card">
-          <h2 className="border-b border-line px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Saved words
-          </h2>
-          {vocab.length === 0 ? (
-            <p className="px-4 py-4 text-sm text-muted">
-              No words yet. Open a lesson, tap a sentence, and save the words you want to keep.
-            </p>
-          ) : (
-            <ul className="divide-y divide-line">
-              {vocab.map((item) => (
-                <li key={item.id} className="flex items-start gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-ink" dir="ltr">
-                      {item.word}
-                    </p>
-                    {item.meaningFa && <p className="fa mt-1 text-sm text-muted">{item.meaningFa}</p>}
-                    {item.contextSentence && (
-                      <p className="mt-1 truncate text-xs text-neutral-500" dir="ltr">
-                        {item.contextSentence}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteVocab(item.id)}
-                    className="shrink-0 rounded-sm border border-line px-2 py-1 text-xs text-muted transition-colors hover:border-neutral-500 hover:text-ink"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       )}
 
       {lessons.length === 0 ? (
