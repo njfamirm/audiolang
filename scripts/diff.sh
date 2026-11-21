@@ -24,6 +24,7 @@ EXCLUDES=(
   ':(exclude)*.min.js'
   ':(exclude)*.map'
   ':(exclude)web/dist/**'
+  ':(exclude).opencode/PROGRESS.md'
 )
 
 render() {

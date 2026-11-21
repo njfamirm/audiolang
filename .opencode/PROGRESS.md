@@ -16,7 +16,7 @@ server/index.ts, server/store.ts, server/rss.ts, server/ai.ts, server/transcribe
 
 ## Next step
 Live at https://audiolang.njfamirm.ir (+ workers.dev). Transcription (Whisper) + explanations both working.
-Fixed: playback "blocked" was mixed content — feed `audioUrl`s are `http://`. Added same-origin `GET /api/audio?url=` proxy (Range-aware) and play() error messages now distinguish autoplay vs load.
+Added git baseline + `/diff` command (`.opencode/commands/diff.md` → `scripts/diff.sh`) → clean diff minus lockfiles/dist/generated, also saved to `ai-diff.patch`.
 Open item: proxy is unauthenticated (open proxy) — restrict hosts if exposed.
 
 ## Constraints/Gotchas
