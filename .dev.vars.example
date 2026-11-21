@@ -1,0 +1,8 @@
+# Local secrets for `wrangler dev` — copy to `.dev.vars`:
+#   cp .dev.vars.example .dev.vars
+# In production use `wrangler secret put <NAME>` instead.
+
+# OpenRouter powers Persian sentence explanations (chat model).
+# Speech-to-text runs on the Workers AI binding ([ai] in wrangler.toml) — no key needed.
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENROUTER_MODEL=deepseek/deepseek-chat

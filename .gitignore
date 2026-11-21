@@ -1,0 +1,16 @@
+node_modules/
+dist/
+web/dist/
+
+# Wrangler local state + secrets
+.wrangler/
+.dev.vars
+.env
+.env.local
+
+.DS_Store
+*.log
+
+# Generated diff artifact (regenerate with /diff)
+audiolang.diff
+ai-diff.patch

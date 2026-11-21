@@ -1,0 +1,742 @@
+{
+  "lessons": [
+    {
+      "id": "seed-lesson-0001",
+      "title": "Sample Lesson — Listening Practice",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0ng2c3n.mp3",
+      "publishedAt": "2026-04-23T09:11:00.000Z",
+      "lastPositionSec": 9,
+      "bookmarks": [
+        3,
+        26
+      ],
+      "segments": [
+        {
+          "id": "seed-seg-0",
+          "index": 0,
+          "text": "Listening is the skill that improves fastest when you practise a little every single day.",
+          "explanationFa": {
+            "meaning": "گوش دادن مهارتیه که با روزی یه کم تمرین، سریع‌تر از همه پیشرفت می‌کنه.",
+            "grammar": "جمله با «that» به عنوان relative pronoun برای توصیف «skill» استفاده شده.",
+            "idioms": [
+              "every single day: هر روز بدون استثنا"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-1",
+          "index": 1,
+          "text": "Start by playing the audio once without reading anything at all.",
+          "explanationFa": {
+            "meaning": "اولین بار فقط به فایل صوتی گوش بده، بدون اینکه چیزی بخونی.",
+            "grammar": "جمله با فعل امر شروع شده و دستور العمل را بیان می‌کند.",
+            "idioms": [
+              "Start by: با این کار شروع کن",
+              "without reading anything at all: بدون اینکه اصلاً چیزی بخونی"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-2",
+          "index": 2,
+          "text": "Your ears will slowly get used to the rhythm and the music of the language.",
+          "explanationFa": {
+            "meaning": "کم‌کم گوشت به ریتم و آهنگ زبان عادت می‌کنه.",
+            "grammar": "جمله با ساختار آینده‌نما (will get used to) بیان شده که نشان‌دهنده‌ی روند تدریجی عادت کردن است.",
+            "idioms": [
+              "get used to: عادت کردن به",
+              "rhythm and music of the language: ریتم و آهنگ زبان (اشاره به ملودی و الگوی طبیعی گفتار)"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-3",
+          "index": 3,
+          "text": "Next, read the transcript while you listen to the same short clip again.",
+          "explanationFa": {
+            "meaning": "حالا، همزمان با گوش دادن دوباره به همان کلیپ کوتاه، متن را هم بخوانید.",
+            "grammar": "جمله‌ای امری با ساختار «حال + فعل امر» برای دادن دستورالعمل.",
+            "idioms": [
+              "read the transcript: متن را بخوانید",
+              "short clip: کلیپ کوتاه"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-4",
+          "index": 4,
+          "text": "You will notice words that you missed the first time around.",
+          "explanationFa": {
+            "meaning": "متوجه کلمه‌هایی می‌شوی که بار اول از دستت در رفت.",
+            "grammar": "جمله با ساختار آینده‌نگر (will) بیان شده و از حالت مجهول (you missed) استفاده کرده.",
+            "idioms": [
+              "missed: از دست دادنی، متوجه نشدن"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-5",
+          "index": 5,
+          "text": "Try to guess the meaning of a new phrase from the words that surround it.",
+          "explanationFa": {
+            "meaning": "سعی کن معنی یه عبارت جدید رو از کلمه‌های اطرافش حدس بزنی.",
+            "grammar": "جمله‌ی امری با ساختار try to + verb برای دادن پیشنهاد یا راهنمایی.",
+            "idioms": [
+              "guess the meaning: معنی رو حدس زدن",
+              "surround it: اطرافش"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-6",
+          "index": 6,
+          "text": "After that, say the sentence out loud and copy the speaker’s intonation.",
+          "explanationFa": {
+            "meaning": "بعدش، جمله رو با صدای بلند بگو و لحن گوینده رو تقلید کن.",
+            "grammar": "دستور دو بخشی با استفاده از «and» برای وصل دو عمل مرتبط.",
+            "idioms": [
+              "out loud: با صدای بلند",
+              "copy the speaker's intonation: لحن گوینده رو تقلید کن"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-7",
+          "index": 7,
+          "text": "Repeat difficult sentences until they feel comfortable in your mouth.",
+          "explanationFa": {
+            "meaning": "جمله‌های سخت رو آنقدر تکرار کن تا برات راحت بشن.",
+            "grammar": "جمله امری با ساختار «تا» برای نشان دادن هدف.",
+            "idioms": [
+              "feel comfortable in your mouth: برات راحت بشن"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-8",
+          "index": 8,
+          "text": "Finally, use the bookmark button to mark the parts you want to review.",
+          "explanationFa": {
+            "meaning": "در آخر، با دکمه‌ی نشان‌گذار، قسمت‌هایی که می‌خوای مرور کنی رو علامت بزن.",
+            "grammar": "جمله‌ی امری با ساختار «use something to do something» برای توضیح نحوه‌ی استفاده از یک ابزار.",
+            "idioms": [
+              "bookmark button: دکمه‌ی نشان‌گذار",
+              "mark: علامت زدن"
+            ]
+          }
+        },
+        {
+          "id": "seed-seg-9",
+          "index": 9,
+          "text": "A short daily habit is far more powerful than one long session at the weekend.",
+          "explanationFa": {
+            "meaning": "یه عادت روزانه‌ی کوتاه، خیلی مؤثرتر از یه جلسه‌ی طولانی تو آخر هفته‌س.",
+            "grammar": "مقایسه با far more...than برای نشان‌دادن تفاوت زیاد.",
+            "idioms": [
+              "far more powerful: خیلی مؤثرتر",
+              "daily habit: عادت روزانه"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "25bf3e9f-ff19-4086-97a1-43f453b0a06d",
+      "title": "Learning English Podcast - March 27, 2025",
+      "source": "VOA Learning English",
+      "audioUrl": "https://voa-audio.voanews.eu/vle/2025/03/27/20250327-003003-vle122-program_hq.mp3",
+      "publishedAt": "2025-03-27T00:30:03.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "849de5c4-0ffc-4cfe-b204-a5d3ec73f2e3",
+          "index": 0,
+          "text": "Learning English use a limited vocabulary and are read at a slower pace than VOA's other English broadcasts.",
+          "explanationFa": {
+            "meaning": "پادکست‌های آموزش انگلیسی با دایره‌ی واژگان محدودتری ساخته می‌شن و سرعت خواندنشون هم از بقیه‌ی برنامه‌های انگلیسی صدای آمریکا کندتره.",
+            "grammar": "جمله با ساختار معلوم و مقایسه‌ای بین پادکست‌ها و سایر برنامه‌ها.",
+            "idioms": [
+              "limited vocabulary: دایره‌ی واژگان محدود",
+              "slower pace: سرعت کمتر"
+            ]
+          }
+        },
+        {
+          "id": "54aee7fc-3932-4dc4-a067-21bd35120682",
+          "index": 1,
+          "text": "Previously known as Special English.",
+          "explanationFa": {
+            "meaning": "قبلاً با نام انگلیسی ویژه شناخته می‌شد.",
+            "grammar": "جمله‌ای ساده با ساختار معلوم در زمان گذشته.",
+            "idioms": [
+              "Previously known as: قبلاً با نام ... شناخته می‌شد"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "7d9e4a54-cee1-4266-a2bc-82bd4af04a10",
+      "title": "Learning English Podcast - March 28, 2025",
+      "source": "VOA Learning English",
+      "audioUrl": "https://voa-audio.voanews.eu/vle/2025/03/28/20250328-003003-vle122-program_hq.mp3",
+      "publishedAt": "2025-03-28T00:30:03.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "1c8b6869-794a-426e-a669-9b7313910cda",
+          "index": 0,
+          "text": "Learning English use a limited vocabulary and are read at a slower pace than VOA's other English broadcasts.",
+          "explanationFa": null
+        },
+        {
+          "id": "863855dc-d45e-4ef8-b7cd-24dce787b9fb",
+          "index": 1,
+          "text": "Previously known as Special English.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "5683d10d-2947-4395-8d27-3c1274355a94",
+      "title": "Learning English Podcast - March 29, 2025",
+      "source": "VOA Learning English",
+      "audioUrl": "https://voa-audio.voanews.eu/vle/2025/03/29/20250329-003003-vle122-program_hq.mp3",
+      "publishedAt": "2025-03-29T00:30:03.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "096c297c-e3b5-4630-bbd4-078aa7c349ed",
+          "index": 0,
+          "text": "Learning English use a limited vocabulary and are read at a slower pace than VOA's other English broadcasts.",
+          "explanationFa": null
+        },
+        {
+          "id": "2101b586-6a16-496e-8f7d-a006d0546952",
+          "index": 1,
+          "text": "Previously known as Special English.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "b635b8ed-1b43-4fe2-a3e4-252d0832288f",
+      "title": "Learning English Podcast - March 30, 2025",
+      "source": "VOA Learning English",
+      "audioUrl": "https://voa-audio.voanews.eu/vle/2025/03/30/20250330-003003-vle122-program_hq.mp3",
+      "publishedAt": "2025-03-30T00:30:03.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "c7e64c5f-1dc0-43bd-8d90-6ca426bc0109",
+          "index": 0,
+          "text": "Learning English use a limited vocabulary and are read at a slower pace than VOA's other English broadcasts.",
+          "explanationFa": null
+        },
+        {
+          "id": "23a12d34-5bfd-4abd-94b5-cc783a9c0733",
+          "index": 1,
+          "text": "Previously known as Special English.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "9906e64a-4e2e-4424-8c5e-e0bd7a10524d",
+      "title": "Learning English Podcast - March 31, 2025",
+      "source": "VOA Learning English",
+      "audioUrl": "https://voa-audio.voanews.eu/vle/2025/03/31/20250331-003003-vle122-program_hq.mp3",
+      "publishedAt": "2025-03-31T00:30:03.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "e8e3a401-669c-473d-b601-db2dbd6f2a1d",
+          "index": 0,
+          "text": "Learning English uses a limited vocabulary and are read at a slower pace than VOA's other English broadcasts.",
+          "explanationFa": null
+        },
+        {
+          "id": "0cd3832f-1d3d-4293-b7cd-1ff6168dbca6",
+          "index": 1,
+          "text": "Previously known as Special English.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "1e5a7389-2daf-4468-a71e-7f61e17a7ad3",
+      "title": "The English We Speak: Leave to one's own devices",
+      "source": "BBC The English We Speak",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0phlwk0.mp3",
+      "publishedAt": "2026-10-20T08:52:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "499429c1-c52d-4fa1-8e1f-47ec726c314e",
+          "index": 0,
+          "text": "Sometimes people leave you to do something on your own because they trust you.",
+          "explanationFa": null
+        },
+        {
+          "id": "7a84ff72-884a-494c-9932-cf1bf3378cf7",
+          "index": 1,
+          "text": "Sometimes people just don't want to help you.",
+          "explanationFa": null
+        },
+        {
+          "id": "363501b2-d24b-495f-a925-0355ca033231",
+          "index": 2,
+          "text": "In both of these situations we can say that you are left to your own devices.",
+          "explanationFa": null
+        },
+        {
+          "id": "57ebd63d-9877-4aee-910e-4099eafcae9f",
+          "index": 3,
+          "text": "Learn how to use this expression with Feifei and Phil..",
+          "explanationFa": null
+        },
+        {
+          "id": "af4688af-1857-48a2-a1e5-a04ba2107617",
+          "index": 4,
+          "text": "Have you signed up to our email newsletter yet?",
+          "explanationFa": null
+        },
+        {
+          "id": "4d96dac9-512c-4e53-84d3-31f9f5b86d51",
+          "index": 5,
+          "text": "If not, what are you waiting for?!",
+          "explanationFa": null
+        },
+        {
+          "id": "c0d0b05e-a821-4eb7-a34a-ecb39e68d714",
+          "index": 6,
+          "text": "And check out our newly updated website homepage.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "8207d8b0-7597-4eca-9e8f-a78662c61bfb",
+      "title": "The English We Speak: In the same breath",
+      "source": "BBC The English We Speak",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pjsmsb.mp3",
+      "publishedAt": "2026-10-27T09:45:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "420527e2-c1c8-4324-8047-cb3846a739ff",
+          "index": 0,
+          "text": "If you express two ideas using 'in the same breath', you contrast them both and add weight to one.",
+          "explanationFa": null
+        },
+        {
+          "id": "ad89c88b-94ae-46ca-a753-e766671d5aba",
+          "index": 1,
+          "text": "It's used to introduce a contradiction.",
+          "explanationFa": null
+        },
+        {
+          "id": "15ae2edc-f3b5-4670-8540-47479199d2f0",
+          "index": 2,
+          "text": "Though the ideas are different, both could be true, but the latter idea, which comes after 'in the same breath', usually carries more weight.",
+          "explanationFa": null
+        },
+        {
+          "id": "7def0858-8186-4b94-ad04-425646d77f05",
+          "index": 3,
+          "text": "Learn how to use this expression with Becca and Feifei..",
+          "explanationFa": null
+        },
+        {
+          "id": "900ac8e8-64c0-48c2-89d5-85c940caad14",
+          "index": 4,
+          "text": "Have you signed up to our email newsletter yet?",
+          "explanationFa": null
+        },
+        {
+          "id": "14c652a5-992b-43b7-9b7e-20a88b223a86",
+          "index": 5,
+          "text": "If not, what are you waiting for?!",
+          "explanationFa": null
+        },
+        {
+          "id": "93a8b231-c5b2-4f22-92bb-738a19b52862",
+          "index": 6,
+          "text": "And check out our newly updated website homepage.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "69bcd809-bede-413a-9f3b-aef4e106fd79",
+      "title": "The English We Speak: Here for it",
+      "source": "BBC The English We Speak",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pl0lbt.mp3",
+      "publishedAt": "2026-11-03T10:27:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "3901a11a-4a6a-4088-8775-f424512ba697",
+          "index": 0,
+          "text": "Here for what exactly?",
+          "explanationFa": null
+        },
+        {
+          "id": "68c1bd2d-ac8f-4a99-9624-6b8687eff5d1",
+          "index": 1,
+          "text": "Learn how to show your support for something with this expression.",
+          "explanationFa": null
+        },
+        {
+          "id": "c74be2f9-217c-4d41-87a9-d099d3609eea",
+          "index": 2,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "25f3b7dc-14dd-4ce6-a623-301546cb652c",
+      "title": "The English We Speak: You had me at...",
+      "source": "BBC The English We Speak",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pm8f16.mp3",
+      "publishedAt": "2026-11-10T11:14:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "d6d08388-0ffe-4962-9885-599c2dcb50af",
+          "index": 0,
+          "text": "Learn a fun expression to say that nothing more needs to be said because you are already convinced. .",
+          "explanationFa": null
+        },
+        {
+          "id": "f1778a24-60ee-44fd-832c-32247eea0a64",
+          "index": 1,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "f90d9555-2ca1-4c76-ba8d-8efe73dceb79",
+      "title": "The English We Speak: In for a treat",
+      "source": "BBC The English We Speak",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pndt26.mp3",
+      "publishedAt": "2026-11-17T12:21:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "dc14338c-b3ac-4ff2-be19-92e30896a2a1",
+          "index": 0,
+          "text": "This expression is about experiencing something enjoyable..",
+          "explanationFa": null
+        },
+        {
+          "id": "96042850-89fc-4c9b-8996-50d7e8381275",
+          "index": 1,
+          "text": "Check out our other podcasts, including: - 6 Minute English - Learning English from the News - Learning Easy English.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "2439a174-d312-40d6-b178-d19477eab1ba",
+      "title": "What should you eat for a better night’s sleep?",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0phyzz9.mp3",
+      "publishedAt": "2026-10-22T09:56:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "1fe00fb8-dec5-4bf0-8871-350fda0dc01e",
+          "index": 0,
+          "text": "Have you ever had the feeling of lying awake at night, unable to get to sleep?",
+          "explanationFa": null
+        },
+        {
+          "id": "e86a798f-a8b7-4605-9f26-4a5ab529e24e",
+          "index": 1,
+          "text": "Many of us know what it is like to struggle with sleep, especially if we have drunk too much tea or coffee before bed!",
+          "explanationFa": null
+        },
+        {
+          "id": "d72ff535-9220-4e8e-b2f4-bb8613f0e1c3",
+          "index": 2,
+          "text": "But did you know that your sleep quality can be affected by other parts of your diet too?",
+          "explanationFa": null
+        },
+        {
+          "id": "3e5aac9c-e72f-446f-8d36-7b8d9ab4d6bd",
+          "index": 3,
+          "text": "Georgie and Phil discuss this and teach you some new vocabulary..",
+          "explanationFa": null
+        },
+        {
+          "id": "610b52af-e936-4724-be56-8b2d4993acd1",
+          "index": 4,
+          "text": "Get a free transcript and quiz at bbclearningenglish.com ..",
+          "explanationFa": null
+        },
+        {
+          "id": "8560b12a-280b-40cc-85ea-ad32ba24c1e4",
+          "index": 5,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "6bca3d91-bdfc-42a9-862b-5b5f5dc02886",
+      "title": "Is aircon the answer to a heating world?",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pk7c8b.mp3",
+      "publishedAt": "2026-10-29T09:09:00.000Z",
+      "lastPositionSec": 1,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "ccaf3695-d28f-4a0b-91c9-5dba1c993825",
+          "index": 0,
+          "text": "Do you ever feel it is too hot to sleep?",
+          "explanationFa": null
+        },
+        {
+          "id": "ff99b723-e3af-4602-9540-48801f311fc4",
+          "index": 1,
+          "text": "With climate change gradually increasing world temperatures, people across the world are becoming increasingly affected by hot weather.",
+          "explanationFa": null
+        },
+        {
+          "id": "ee78aebb-16d3-471e-b335-e332226ecb1d",
+          "index": 2,
+          "text": "In many locations, air conditioning is used to help cool down homes and workplaces, but not everyone has access to this.",
+          "explanationFa": null
+        },
+        {
+          "id": "5f075025-8e32-4bb1-8510-fcf3a63bd0ad",
+          "index": 3,
+          "text": "And it isn't just about getting a good night's sleep – extremely hot weather can be a serious health risk.",
+          "explanationFa": null
+        },
+        {
+          "id": "0616038c-40c1-4ccd-93f6-58a4905631a2",
+          "index": 4,
+          "text": "Georgie and Neil discuss this and teach you some new vocabulary..",
+          "explanationFa": {
+            "meaning": "جورجی و نیل در این باره بحث می‌کنند و به شما لغات جدیدی یاد می‌دهند.",
+            "grammar": "جمله ساده با ساختار فاعل + فعل + مفعول.",
+            "idioms": []
+          }
+        },
+        {
+          "id": "a598d349-21f8-41db-8ac8-d40f185d8f8a",
+          "index": 5,
+          "text": "6 Minute English now has a VIDEO VERSION!",
+          "explanationFa": null
+        },
+        {
+          "id": "56bd9077-b40d-4829-a202-aa0b94d5719e",
+          "index": 6,
+          "text": "6 Minute English now comes with a video!",
+          "explanationFa": null
+        },
+        {
+          "id": "0e20fe68-603f-4af5-8661-171ff72181ca",
+          "index": 7,
+          "text": "It's the same programme that you know and love, but now you can see us!",
+          "explanationFa": null
+        },
+        {
+          "id": "3d2b5878-7e5a-4f35-9ba9-66d4296412c4",
+          "index": 8,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "b9f314b3-bb1c-4ffa-a603-8f04295d01ef",
+      "title": "Could vaccines cure cancer?",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pldlfg.mp3",
+      "publishedAt": "2026-11-05T09:36:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "f52f24bd-d189-48fb-8f8c-db655edf129c",
+          "index": 0,
+          "text": "When was the last time you had a vaccination, and what was it for?",
+          "explanationFa": null
+        },
+        {
+          "id": "cf6153da-0174-46eb-afb3-816c0a9ab3a8",
+          "index": 1,
+          "text": "Many of us get vaccinations when we are children or when we go travelling, but did you know that scientists have been developing vaccines that can be personalised to help your body keep itself clear of some specific cancer types?",
+          "explanationFa": null
+        },
+        {
+          "id": "aeccae87-2113-4a62-80c5-a5ed1f3c320b",
+          "index": 2,
+          "text": "Georgie and Phil discuss this and teach you some new vocabulary..",
+          "explanationFa": null
+        },
+        {
+          "id": "118de2f9-e792-4ef6-b333-f3bfb25a8f60",
+          "index": 3,
+          "text": "6 Minute English now has a VIDEO VERSION!",
+          "explanationFa": null
+        },
+        {
+          "id": "f877db40-e59c-45f5-ab83-2f37dc47e72c",
+          "index": 4,
+          "text": "6 Minute English now comes with a video!",
+          "explanationFa": null
+        },
+        {
+          "id": "861446cf-bce5-4d76-a6e4-cf0b2937b440",
+          "index": 5,
+          "text": "It's the same programme that you know and love, but now you can see us!",
+          "explanationFa": null
+        },
+        {
+          "id": "3eeb41c6-fa34-495f-86ce-9aaf91407423",
+          "index": 6,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "64a7250c-fd17-4090-b1dd-98a8c1998d35",
+      "title": "Learning from different generations",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pmkqml.mp3",
+      "publishedAt": "2026-11-12T09:59:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "c273b455-196b-455e-aa1f-6a7a5dc1c516",
+          "index": 0,
+          "text": "When you were younger, did you have a special bond with your grandparents?",
+          "explanationFa": null
+        },
+        {
+          "id": "a2d70b23-143d-4795-a4e6-d08a087fa7df",
+          "index": 1,
+          "text": "Many of us develop particularly close attachments with older family members, but did you know that this ability for the oldest and youngest of our society to get along in a friendly way is not limited to families?",
+          "explanationFa": null
+        },
+        {
+          "id": "90f7ab3b-440b-4bae-a344-03f0df08b80b",
+          "index": 2,
+          "text": "In fact, there are some projects which pair together nurseries and retirement homes, to help reduce feelings of loneliness and improve everybody's general health and happiness.",
+          "explanationFa": null
+        },
+        {
+          "id": "f725de5a-9998-4344-a817-43e544a6bc4b",
+          "index": 3,
+          "text": "Georgie and Phil discuss this and teach you some new vocabulary..",
+          "explanationFa": null
+        },
+        {
+          "id": "21c6efb5-208e-4bbb-8d92-15950a6b925b",
+          "index": 4,
+          "text": "6 Minute English now has a VIDEO VERSION!",
+          "explanationFa": null
+        },
+        {
+          "id": "49a81979-dcde-4c65-90c1-a7944c3b5e10",
+          "index": 5,
+          "text": "6 Minute English now comes with a video!",
+          "explanationFa": null
+        },
+        {
+          "id": "5d18fc37-1da1-49f0-a530-0daf975b7556",
+          "index": 6,
+          "text": "It's the same programme that you know and love, but now you can see us!",
+          "explanationFa": null
+        },
+        {
+          "id": "11d61425-2b2b-42c7-9426-5c60992b1996",
+          "index": 7,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    },
+    {
+      "id": "5e01bc19-a577-4f98-88f7-cc38ff1c3bb3",
+      "title": "Are microplastics harming us?",
+      "source": "BBC 6 Minute English",
+      "audioUrl": "http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio-nondrm-download-rss-low/proto/http/vpid/p0pnsz8p.mp3",
+      "publishedAt": "2026-11-19T10:07:00.000Z",
+      "lastPositionSec": 0,
+      "bookmarks": [],
+      "segments": [
+        {
+          "id": "3585a716-447a-40e0-97cc-2d07be8e388c",
+          "index": 0,
+          "text": "How much plastic do you use on a daily basis?",
+          "explanationFa": null
+        },
+        {
+          "id": "f65d9ae9-9535-41ec-b4c5-67eb5500f03b",
+          "index": 1,
+          "text": "And how much of it is used to package or prepare food?",
+          "explanationFa": null
+        },
+        {
+          "id": "678edf94-28e9-414d-af83-5431a37069e4",
+          "index": 2,
+          "text": "Recently, scientists are becoming increasingly concerned that microplastics, tiny bits of plastic invisible to the naked eye, are entering our bodies through these food sources... but it is unclear exactly what the long-term health effects will be.",
+          "explanationFa": null
+        },
+        {
+          "id": "29b317f5-2ff4-4e73-a50d-5ca47cd10fc5",
+          "index": 3,
+          "text": "Becca and Phil discuss this and teach you some new vocabulary..",
+          "explanationFa": null
+        },
+        {
+          "id": "4235a5e7-f1e7-4bb4-be88-11ae08a973b7",
+          "index": 4,
+          "text": "6 Minute English now has a VIDEO VERSION!",
+          "explanationFa": null
+        },
+        {
+          "id": "829f3ed8-e18f-46cf-a360-af89e2a956f0",
+          "index": 5,
+          "text": "It's the same programme that you know and love, but now you can see us!",
+          "explanationFa": null
+        },
+        {
+          "id": "da5d53f8-ee37-4ec7-aed3-1fabb2eee674",
+          "index": 6,
+          "text": "Let us know what you think of the new version of 6 Minute English at learningenglish@bbc.co.uk .",
+          "explanationFa": null
+        },
+        {
+          "id": "65ec2aab-642b-4d2a-9d7b-423ce0bcb35b",
+          "index": 7,
+          "text": "Follow us on social media @bbclearningenglish.",
+          "explanationFa": null
+        }
+      ]
+    }
+  ],
+  "vocab": []
+}

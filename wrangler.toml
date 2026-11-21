@@ -1,0 +1,22 @@
+name = "audiolang"
+main = "server/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+# Workers AI binding — powers Whisper transcription (no external STT key needed).
+[ai]
+binding = "AI"
+
+# Static React build served by the Worker at the edge.
+[assets]
+directory = "./web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[kv_namespaces]]
+binding = "STORE_KV"
+id = "970b4d21c65640f39260650dd0f7c015"
+
+[[routes]]
+pattern = "audiolang.njfamirm.ir"
+custom_domain = true
