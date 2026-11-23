@@ -7,7 +7,7 @@ import StudyMode from './components/StudyMode'
 import VocabList from './components/VocabList'
 import { api, setUnauthorizedHandler } from './api'
 import { navigate, parsePath, useRoutePath } from './router'
-import type { ExplanationFa, Lesson, Mode, PlayerApi, VocabItem } from './types'
+import type { ActivityLog, ExplanationFa, Lesson, Mode, PlayerApi, VocabItem } from './types'
 
 const SPEEDS: number[] = [0.75, 1, 1.25]
 
@@ -30,6 +30,7 @@ export default function App() {
 
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [vocab, setVocab] = useState<VocabItem[]>([])
+  const [activityLog, setActivityLog] = useState<ActivityLog>({})
   const [auth, setAuth] = useState<AuthState>({
     checked: false,
     required: false,
@@ -44,7 +45,7 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   const [fatal, setFatal] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
-  const [transcribingId, setTranscribingId] = useState<string | null>(null)
+  const [preparingId, setPreparingId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [aiConfigured, setAiConfigured] = useState(true)
@@ -119,7 +120,7 @@ export default function App() {
     void (async () => {
       try {
         const [lessonData, vocabData, health] = await Promise.all([
-          api<{ lessons: Lesson[] }>('/api/lessons'),
+          api<{ lessons: Lesson[]; activityLog?: ActivityLog }>('/api/lessons'),
           api<{ vocab: VocabItem[] }>('/api/vocab'),
           api<{ aiConfigured: boolean; transcriptionConfigured: boolean }>('/api/health').catch(
             () => null,
@@ -128,6 +129,7 @@ export default function App() {
         if (cancelled) return
         setLessons(lessonData.lessons ?? [])
         setVocab(vocabData.vocab ?? [])
+        setActivityLog(lessonData.activityLog ?? {})
         setFatal(null)
         if (health) {
           setAiConfigured(Boolean(health.aiConfigured))
@@ -152,29 +154,43 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [toast])
 
-  const saveProgress = useCallback(async (lessonId: string, seconds: number) => {
-    try {
-      await api(`/api/lessons/${lessonId}/progress`, {
-        method: 'PATCH',
-        body: JSON.stringify({ lastPositionSec: seconds }),
-      })
-      setLessons((previous) =>
-        previous.map((lesson) =>
-          lesson.id === lessonId ? { ...lesson, lastPositionSec: seconds } : lesson,
-        ),
-      )
-    } catch {
-      // Progress saving is best-effort.
-    }
-  }, [])
+  const saveProgress = useCallback(
+    async (
+      lessonId: string,
+      seconds: number,
+      extras?: { durationSec?: number; listenDeltaSec?: number },
+    ) => {
+      try {
+        const data = await api<{ activityLog?: ActivityLog }>(
+          `/api/lessons/${lessonId}/progress`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ lastPositionSec: seconds, ...extras }),
+          },
+        )
+        setLessons((previous) =>
+          previous.map((lesson) =>
+            lesson.id === lessonId ? { ...lesson, lastPositionSec: seconds } : lesson,
+          ),
+        )
+        if (data.activityLog) setActivityLog(data.activityLog)
+      } catch {
+        // Progress saving is best-effort.
+      }
+    },
+    [],
+  )
 
-  // Auto-save position every 5 seconds while playing.
+  // Auto-save position + listen time every 5 seconds while playing.
   useEffect(() => {
     const timer = setInterval(() => {
       const audio = audioRef.current
       const id = currentIdRef.current
       if (!audio || !id || audio.paused || !Number.isFinite(audio.currentTime)) return
-      void saveProgress(id, Math.round(audio.currentTime))
+      void saveProgress(id, Math.round(audio.currentTime), {
+        listenDeltaSec: 5,
+        ...(Number.isFinite(audio.duration) ? { durationSec: Math.round(audio.duration) } : {}),
+      })
     }, 5000)
     return () => clearInterval(timer)
   }, [saveProgress])
@@ -238,6 +254,10 @@ export default function App() {
         setToast('Could not play this audio yet — it may still be loading.')
       }
     })
+  }, [])
+
+  const pause = useCallback(() => {
+    audioRef.current?.pause()
   }, [])
 
   const toggle = useCallback(() => {
@@ -354,17 +374,18 @@ export default function App() {
     }
   }, [])
 
-  const transcribe = useCallback(async (lessonId: string, durationSec: number) => {
-    setTranscribingId(lessonId)
+  const prepare = useCallback(async (lessonId: string, durationSec: number) => {
+    setPreparingId(lessonId)
     try {
-      const data = await api<{ lesson: Lesson; cached: boolean }>(
-        `/api/lessons/${lessonId}/transcribe`,
-        { method: 'POST', body: JSON.stringify({ durationSec: Math.round(durationSec) }) },
-      )
+      const wasCached = lessons.find((lesson) => lesson.id === lessonId)?.audioCached ?? false
+      const data = await api<{ lesson: Lesson }>(`/api/lessons/${lessonId}/prepare`, {
+        method: 'POST',
+        body: JSON.stringify({ durationSec: Math.round(durationSec) }),
+      })
 
       // If the open lesson just got its audio frozen, preserve position + playback across the
       // source swap from the live feed URL to the KV route.
-      if (data.lesson.audioCached && currentIdRef.current === lessonId) {
+      if (data.lesson.audioCached && !wasCached && currentIdRef.current === lessonId) {
         const audio = audioRef.current
         pendingSeekRef.current =
           audio && Number.isFinite(audio.currentTime)
@@ -376,37 +397,50 @@ export default function App() {
       setLessons((previous) =>
         previous.map((lesson) => (lesson.id === lessonId ? data.lesson : lesson)),
       )
-      setToast(
-        data.cached
-          ? 'Transcript already cached'
-          : `Full transcript synced · ${data.lesson.segments.length} sentences`,
-      )
+      setToast('Lesson prepared — audio, sentences & AI pack ready')
     } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Transcription failed')
+      setToast(error instanceof Error ? error.message : 'Could not prepare this lesson')
     } finally {
-      setTranscribingId(null)
+      setPreparingId(null)
     }
-  }, [])
+  }, [lessons])
 
-  const align = useCallback(async (lessonId: string, durationSec: number) => {
-    setTranscribingId(lessonId)
+  const markQuizCompleted = useCallback(async (lessonId: string) => {
     try {
-      const data = await api<{ lesson: Lesson; cached: boolean }>(
-        `/api/lessons/${lessonId}/align`,
-        { method: 'POST', body: JSON.stringify({ durationSec: Math.round(durationSec) }) },
-      )
+      const data = await api<{ lesson: Lesson }>(`/api/lessons/${lessonId}/progress`, {
+        method: 'PATCH',
+        body: JSON.stringify({ quizCompleted: true }),
+      })
       setLessons((previous) =>
         previous.map((lesson) => (lesson.id === lessonId ? data.lesson : lesson)),
       )
-      setToast(
-        data.cached ? 'Timings already aligned' : 'Timings aligned — no API call was made',
-      )
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Could not align timings')
-    } finally {
-      setTranscribingId(null)
+    } catch {
+      // Best-effort: the quiz still shows as complete locally.
     }
   }, [])
+
+  const reviewOutput = useCallback(async (lessonId: string, userText: string) => {
+    const data = await api<{ lesson: Lesson }>(`/api/lessons/${lessonId}/output-feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ userText }),
+    })
+    setLessons((previous) =>
+      previous.map((lesson) => (lesson.id === lessonId ? data.lesson : lesson)),
+    )
+    return data.lesson.lastOutputFeedback ?? null
+  }, [])
+
+  const reviewVocab = useCallback(
+    async (id: string, rating: 'again' | 'good' | 'easy') => {
+      const data = await api<{ vocab: VocabItem[]; activityLog?: ActivityLog }>(
+        `/api/vocab/${id}/review`,
+        { method: 'POST', body: JSON.stringify({ rating }) },
+      )
+      setVocab(data.vocab)
+      if (data.activityLog) setActivityLog(data.activityLog)
+    },
+    [],
+  )
 
   const explain = useCallback(async (segmentId: string): Promise<ExplanationFa> => {
     const lessonId = currentIdRef.current
@@ -519,8 +553,8 @@ export default function App() {
   }, [])
 
   const player: PlayerApi = useMemo(
-    () => ({ playing, now, currentTime, duration, rate, play, toggle, seek, skip, cycleRate }),
-    [playing, now, currentTime, duration, rate, play, toggle, seek, skip, cycleRate],
+    () => ({ playing, now, currentTime, duration, rate, play, pause, toggle, seek, skip, cycleRate }),
+    [playing, now, currentTime, duration, rate, play, pause, toggle, seek, skip, cycleRate],
   )
 
   const renderLesson = () => {
@@ -558,13 +592,13 @@ export default function App() {
         player={player}
         activeSegmentId={activeSegment?.id ?? null}
         aiConfigured={aiConfigured}
-        transcriptionConfigured={transcriptionConfigured}
-        transcribing={transcribingId === currentLesson.id}
+        preparing={preparingId === currentLesson.id}
         onExit={() => navigate('/')}
         onModeChange={() => navigate(`/lesson/${currentLesson.id}/drive`)}
         onAddBookmark={addBookmark}
-        onTranscribe={() => void transcribe(currentLesson.id, duration)}
-        onAlign={() => void align(currentLesson.id, duration)}
+        onPrepare={() => void prepare(currentLesson.id, duration)}
+        onCompleteQuiz={() => void markQuizCompleted(currentLesson.id)}
+        onReviewOutput={(text) => reviewOutput(currentLesson.id, text)}
         onExplain={explain}
         onSaveWord={saveWord}
         onDefineWord={defineWord}
@@ -622,13 +656,15 @@ export default function App() {
           vocab={vocab}
           onBack={() => navigate('/')}
           onDelete={(id) => void deleteVocab(id)}
+          onReview={reviewVocab}
         />
       ) : currentId ? (
         renderLesson()
       ) : (
         <LessonList
           lessons={lessons}
-          vocabCount={vocab.length}
+          vocab={vocab}
+          activityLog={activityLog}
           syncing={syncing}
           aiConfigured={aiConfigured}
           transcriptionConfigured={transcriptionConfigured}

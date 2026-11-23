@@ -24,6 +24,11 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+#root {
+  overflow-x: hidden;
 }
 
 /* Persian explanation text: Vazirmatn + RTL, always. */

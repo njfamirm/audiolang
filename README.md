@@ -12,12 +12,13 @@ no Postgres, no auth, no TTS.
 | API | Hono on Cloudflare Workers (`server/index.ts`, `export default app`) |
 | DB | Cloudflare KV, one key: `audiolang_store` (JSON string) |
 | Audio source | Free podcast RSS (BBC 6 Minute English, BBC The English We Speak, VOA) |
-| Transcript | Audio-capable **OpenRouter** model → full text + sentence timings |
-| Persian notes | OpenRouter chat model, cached per segment in KV |
+| Transcript | **Groq** `whisper-large-v3-turbo` → text + precise word/sentence timings |
+| Persian notes | Workers AI chat → Groq fallback, cached per segment in KV |
 | Frontend | Vite + React + Tailwind, `web/src` |
 
-There is **no HTML scraping** and **no second provider**: the real MP3 is sent to an
-audio-capable OpenRouter model. One key covers both transcripts and Persian notes.
+There is **no HTML scraping**: the real MP3 is sent to Groq Whisper for precise timestamps,
+with Workers AI Whisper and an OpenRouter audio model as automatic fallbacks. Persian notes
+use Workers AI chat with a Groq fallback (reliable from Workers egress).
 
 ## Setup
 
@@ -33,6 +34,8 @@ cp .dev.vars.example .dev.vars     # then fill the key
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_MODEL=deepseek/deepseek-chat
 # OPENROUTER_TRANSCRIBE_MODEL=google/gemini-2.5-flash   (default)
+# Groq — primary STT with precise word/segment timestamps (free key at console.groq.com)
+GROQ_API_KEY=gsk_...
 ```
 
 Audio-only mode works with **no key at all**: playback, bookmarks, speed, vocabulary.
@@ -69,6 +72,7 @@ npx wrangler login
 npx wrangler kv namespace create STORE_KV      # copy the printed id
 # put that id into wrangler.toml ([[kv_namespaces]] id = "...")
 npx wrangler secret put OPENROUTER_API_KEY
+npx wrangler secret put GROQ_API_KEY        # primary STT (precise word/segment timestamps)
 npm run deploy
 ```
 

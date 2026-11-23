@@ -32,8 +32,23 @@ export interface TranscriptResult {
 type TranscriptCore = Omit<TranscriptResult, 'audio'>
 
 const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo'
+/** Audio-capable OpenRouter model used when the Workers AI Whisper quota is exhausted. */
+const OPENROUTER_TRANSCRIBE_DEFAULT_MODEL = 'google/gemini-2.5-flash'
+const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions'
 /** Raw audio cap. Base64 inflates by ~33%, so stay well below request limits. */
 const MAX_AUDIO_BYTES = 18 * 1024 * 1024
+
+const OPENROUTER_TRANSCRIBE_PROMPT =
+  'Transcribe this English audio verbatim. Return ONLY the transcript text with normal ' +
+  'punctuation and natural sentence breaks. Do not add timestamps, speaker labels, ' +
+  'commentary, headings, or markdown.'
+
+/** Groq OpenAI-compatible STT endpoint — returns precise word/segment timestamps. */
+const GROQ_TRANSCRIBE_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
+const GROQ_WHISPER_MODEL = 'whisper-large-v3-turbo'
+
+/** Current transcript pipeline version. Lessons below this are re-transcribed on-demand. */
+export const CURRENT_TRANSCRIPT_VERSION = 3
 
 interface WhisperSegment {
   start?: number
@@ -57,7 +72,22 @@ interface WhisperResponse {
 }
 
 export function transcriptionConfigured(env: Env): boolean {
-  return Boolean(env.AI)
+  return Boolean(env.GROQ_API_KEY || env.AI || env.OPENROUTER_API_KEY)
+}
+
+/** True when a Workers AI error looks like the free-tier daily neuron/rate limit. */
+function isDailyLimitError(error: unknown): boolean {
+  const parts: string[] = []
+  if (error instanceof Error) parts.push(error.message)
+  else if (error) parts.push(String(error))
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    for (const key of ['status', 'code', 'message', 'error']) {
+      if (record[key] !== undefined) parts.push(String(record[key]))
+    }
+  }
+  const text = parts.join(' ')
+  return /3040|neuron|quota|daily limit|rate.?limit|too many requests|\b429\b/i.test(text)
 }
 
 /** Base64-encode bytes in fixed-size chunks so huge MP3s never blow the call stack. */
@@ -322,15 +352,252 @@ function sanitize(raw: WhisperResponse, durationHintSec: number): TranscriptCore
   )
 }
 
+/** Common abbreviations that end with a period but not a sentence. */
+const ABBREVIATION = /\b(mr|mrs|ms|dr|prof|st|jr|sr|vs|etc|e\.g|i\.e|u\.s|u\.k|a\.m|p\.m|no)\.$/i
+
+/** True when a segment's text ends a complete sentence (ignoring abbreviations). */
+function endsSentence(text: string): boolean {
+  const stripped = text.trim().replace(/["')\]]+$/, '')
+  if (!/[.!?]$/.test(stripped)) return false
+  return !ABBREVIATION.test(stripped)
+}
+
+/**
+ * Whisper splits by audio pauses, which produces broken half-sentences. Merge consecutive raw
+ * segments into complete sentences until one ends with `.`/`!`/`?`, capping each at `maxChars`
+ * (split at the nearest segment boundary). Keeps the first chunk's start and the last chunk's end.
+ */
+export function mergeIntoSentences(
+  rawSegments: TranscriptSegment[],
+  maxChars = 240,
+): TranscriptSegment[] {
+  const merged: TranscriptSegment[] = []
+  let buffer: TranscriptSegment[] = []
+
+  const flush = () => {
+    if (buffer.length === 0) return
+    const text = buffer
+      .map((segment) => segment.text.trim())
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) {
+      const words = buffer.flatMap((segment) => segment.words ?? [])
+      const result: TranscriptSegment = {
+        text,
+        start: buffer[0].start,
+        end: buffer[buffer.length - 1].end,
+      }
+      if (words.length > 0) result.words = words
+      merged.push(result)
+    }
+    buffer = []
+  }
+
+  for (const segment of rawSegments) {
+    buffer.push(segment)
+    const combinedLength = buffer.reduce((sum, item) => sum + item.text.trim().length + 1, 0)
+    if (endsSentence(segment.text) || combinedLength >= maxChars) flush()
+  }
+  flush()
+
+  return merged
+}
+
+/** Sniff a common audio container from its magic bytes (podcast feeds are almost always MP3). */
+function guessAudioFormat(bytes: Uint8Array): string {
+  if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return 'mp3'
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return 'mp3'
+  if (bytes.length >= 4 && bytes[0] === 0x66 && bytes[1] === 0x4c && bytes[2] === 0x61 && bytes[3] === 0x43)
+    return 'flac'
+  if (bytes.length >= 4 && bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53)
+    return 'ogg'
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70
+  )
+    return 'mp4'
+  return 'mp3'
+}
+
+/**
+ * Transcribe audio with an audio-capable OpenRouter model when Workers AI is quota-limited.
+ * The model returns plain text; sentence timings are then estimated by distribution.
+ */
+async function openRouterTranscribe(
+  env: Env,
+  audioBase64: string,
+  format: string,
+): Promise<string> {
+  if (!env.OPENROUTER_API_KEY) {
+    throw new Error('OpenRouter is not configured. Set the OPENROUTER_API_KEY secret.')
+  }
+  const endpoint = env.OPENROUTER_BASE_URL || OPENROUTER_DEFAULT_BASE_URL
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: env.OPENROUTER_TRANSCRIBE_MODEL || OPENROUTER_TRANSCRIBE_DEFAULT_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: OPENROUTER_TRANSCRIBE_PROMPT },
+            { type: 'input_audio', input_audio: { data: audioBase64, format } },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 8000,
+    }),
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(
+      `OpenRouter transcription failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+    )
+  }
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: unknown } }>
+  }
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content === 'string' && content.trim()) return content
+  if (Array.isArray(content)) {
+    const text = content
+      .map((part) =>
+        part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string'
+          ? (part as { text: string }).text
+          : '',
+      )
+      .join('')
+      .trim()
+    if (text) return text
+  }
+  throw new Error('OpenRouter returned no transcript for this audio.')
+}
+
+/**
+ * Transcribe via Groq's OpenAI-compatible STT endpoint. Returns the same shape as Whisper
+ * (`{ text, segments, words }`) but with precise word- and segment-level timestamps.
+ */
+async function groqTranscribe(
+  env: Env,
+  audio: ArrayBuffer,
+  format: string,
+): Promise<WhisperResponse> {
+  if (!env.GROQ_API_KEY) {
+    throw new Error('Groq is not configured. Set the GROQ_API_KEY secret.')
+  }
+  const form = new FormData()
+  form.append('file', new Blob([audio], { type: 'audio/mpeg' }), `audio.${format}`)
+  form.append('model', GROQ_WHISPER_MODEL)
+  form.append('response_format', 'verbose_json')
+  form.append('language', 'en')
+  form.append('timestamp_granularities[]', 'segment')
+  form.append('timestamp_granularities[]', 'word')
+
+  const response = await fetch(GROQ_TRANSCRIBE_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
+    body: form,
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(
+      `Groq transcription failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+    )
+  }
+  const data = (await response.json()) as WhisperResponse
+  if (
+    (typeof data?.text !== 'string' || !data.text.trim()) &&
+    (!Array.isArray(data?.segments) || data.segments.length === 0)
+  ) {
+    throw new Error('Groq returned no transcript for this audio.')
+  }
+  return data
+}
+
+/** Workers AI Whisper, falling back to an OpenRouter audio model when quota-limited. */
+async function workersOrOpenRouterTranscribe(
+  env: Env,
+  audioBase64: string,
+  bytes: Uint8Array,
+): Promise<WhisperResponse> {
+  if (env.AI) {
+    try {
+      return (await env.AI.run(WHISPER_MODEL, {
+        audio: audioBase64,
+        task: 'transcribe',
+        language: 'en',
+      })) as WhisperResponse
+    } catch (error) {
+      if (!env.OPENROUTER_API_KEY) {
+        if (isDailyLimitError(error)) {
+          throw new Error('Cloudflare AI daily limit reached. Please try again tomorrow.')
+        }
+        throw error
+      }
+      console.error('[transcribe] Workers AI Whisper failed — falling back to OpenRouter:', error)
+    }
+  } else {
+    console.warn('[transcribe] Workers AI binding missing — using OpenRouter transcription.')
+  }
+  const text = await openRouterTranscribe(env, audioBase64, guessAudioFormat(bytes))
+  return { text }
+}
+
+/**
+ * Run STT over already-downloaded bytes and merge the result into complete sentences.
+ * Order: Groq (precise word/segment timestamps) → Workers AI Whisper → OpenRouter audio.
+ */
+export async function transcribeBuffer(
+  env: Env,
+  audio: ArrayBuffer,
+  durationHintSec = 0,
+): Promise<TranscriptResult> {
+  if (audio.byteLength === 0) throw new Error('Audio is empty.')
+  if (audio.byteLength > MAX_AUDIO_BYTES) {
+    throw new Error(
+      `This episode is ${Math.round(audio.byteLength / 1024 / 1024)} MB — too large to transcribe. Try a shorter audio URL.`,
+    )
+  }
+  if (!env.GROQ_API_KEY && !env.AI && !env.OPENROUTER_API_KEY) {
+    throw new Error(
+      'No transcription provider configured. Set GROQ_API_KEY, add the Workers AI [ai] binding, or set OPENROUTER_API_KEY.',
+    )
+  }
+
+  const bytes = new Uint8Array(audio)
+  const audioBase64 = toBase64(bytes)
+  const format = guessAudioFormat(bytes)
+
+  let result: WhisperResponse
+  if (env.GROQ_API_KEY) {
+    try {
+      result = await groqTranscribe(env, audio, format)
+    } catch (error) {
+      console.error('[transcribe] Groq failed — falling back to Workers AI:', error)
+      result = await workersOrOpenRouterTranscribe(env, audioBase64, bytes)
+    }
+  } else {
+    result = await workersOrOpenRouterTranscribe(env, audioBase64, bytes)
+  }
+
+  const core = sanitize(result, durationHintSec)
+  return { ...core, segments: mergeIntoSentences(core.segments), audio }
+}
+
 export async function transcribeAudio(
   env: Env,
   audioUrl: string,
   durationHintSec = 0,
 ): Promise<TranscriptResult> {
-  if (!env.AI) {
-    throw new Error('The Workers AI binding (AI) is not configured. Add the [ai] block to wrangler.toml.')
-  }
-
   const audioResponse = await fetch(audioUrl, {
     redirect: 'follow',
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AudioLang/2.0; +cloudflare-worker)' },
@@ -348,19 +615,6 @@ export async function transcribeAudio(
 
   const audio = await audioResponse.arrayBuffer()
   if (audio.byteLength === 0) throw new Error('Audio download returned 0 bytes.')
-  if (audio.byteLength > MAX_AUDIO_BYTES) {
-    throw new Error(
-      `This episode is ${Math.round(audio.byteLength / 1024 / 1024)} MB — too large to transcribe. Try a shorter audio URL.`,
-    )
-  }
 
-  const audioBase64 = toBase64(new Uint8Array(audio))
-
-  const result = (await env.AI.run(WHISPER_MODEL, {
-    audio: audioBase64,
-    task: 'transcribe',
-    language: 'en',
-  })) as WhisperResponse
-
-  return { ...sanitize(result, durationHintSec), audio }
+  return transcribeBuffer(env, audio, durationHintSec)
 }

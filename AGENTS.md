@@ -1,0 +1,4 @@
+- On `/new` or first turn, read `.opencode/CONTEXT.md` first.
+- Need a symbol/function? `grep` `.opencode/SYMBOLS.md` first, then `read` only the target line range (`offset`/`limit`).
+- Never scan unrelated files or read lockfiles/diffs/dist in full.
+- After structural changes (new route, schema field, or file), update `.opencode/CONTEXT.md` and re-run the `SYMBOLS.md` command.

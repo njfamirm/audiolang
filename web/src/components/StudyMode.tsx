@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ExplanationFa, Lesson, Mode, PlayerApi, Segment } from '../types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ExplanationFa, Lesson, Mode, OutputFeedback, PlayerApi, Segment } from '../types'
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -29,13 +29,13 @@ interface Props {
   player: PlayerApi
   activeSegmentId: string | null
   aiConfigured: boolean
-  transcriptionConfigured: boolean
-  transcribing: boolean
+  preparing: boolean
   onExit: () => void
   onModeChange: (mode: Mode) => void
   onAddBookmark: () => Promise<number | null>
-  onTranscribe: () => void
-  onAlign: () => void
+  onPrepare: () => void
+  onCompleteQuiz: () => void
+  onReviewOutput: (userText: string) => Promise<OutputFeedback | null>
   onExplain: (segmentId: string) => Promise<ExplanationFa>
   onSaveWord: (payload: {
     word: string
@@ -50,13 +50,13 @@ export default function StudyMode({
   player,
   activeSegmentId,
   aiConfigured,
-  transcriptionConfigured,
-  transcribing,
+  preparing,
   onExit,
   onModeChange,
   onAddBookmark,
-  onTranscribe,
-  onAlign,
+  onPrepare,
+  onCompleteQuiz,
+  onReviewOutput,
   onExplain,
   onSaveWord,
   onDefineWord,
@@ -68,13 +68,29 @@ export default function StudyMode({
   const [defining, setDefining] = useState<Record<string, boolean>>({})
   const [savedSegments, setSavedSegments] = useState<string[]>([])
   const [savedIdioms, setSavedIdioms] = useState<string[]>([])
+  const [savedWarmup, setSavedWarmup] = useState<string[]>([])
   const [bookmarkFlash, setBookmarkFlash] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [activeWord, setActiveWord] = useState<{ segmentId: string; index: number } | null>(null)
 
+  const [blindMode, setBlindMode] = useState(false)
+  const [revealedIds, setRevealedIds] = useState<string[]>([])
+  const [loopingId, setLoopingId] = useState<string | null>(null)
+  const [warmupOpen, setWarmupOpen] = useState(true)
+
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({})
+  const [outputText, setOutputText] = useState('')
+  const [outputBusy, setOutputBusy] = useState(false)
+  const [outputFeedback, setOutputFeedback] = useState<OutputFeedback | null>(
+    lesson.lastOutputFeedback ?? null,
+  )
+
   const itemRefs = useRef<Record<string, HTMLLIElement | null>>({})
   const userScrollingRef = useRef(false)
   const scrollResetRef = useRef<number | null>(null)
+  const quizSentRef = useRef(false)
+  const playerRef = useRef(player)
+  playerRef.current = player
 
   const markUserScroll = () => {
     userScrollingRef.current = true
@@ -97,6 +113,39 @@ export default function StudyMode({
     itemRefs.current[activeSegmentId]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [activeSegmentId, autoScroll, player.playing])
 
+  // Sentence loop: while active, pause ~800ms past the sentence end (for shadowing), then
+  // rewind and resume. Driven off the live audio clock, held in refs so React re-renders
+  // never reset the pause timer.
+  useEffect(() => {
+    if (!loopingId) return
+    const segment = lesson.segments.find((item) => item.id === loopingId)
+    if (!segment || typeof segment.startSec !== 'number' || typeof segment.endSec !== 'number') {
+      return
+    }
+    const start = segment.startSec
+    const end = segment.endSec
+    let frame = 0
+    let holding = false
+    let timer: number | null = null
+    const tick = () => {
+      if (!holding && playerRef.current.now() >= end) {
+        holding = true
+        playerRef.current.pause()
+        timer = window.setTimeout(() => {
+          playerRef.current.seek(start)
+          playerRef.current.play()
+          holding = false
+        }, 800)
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [loopingId, lesson.segments])
+
   // Word-by-word highlight, driven by the live audio clock so it stays smooth between the
   // browser's throttled `timeupdate` events. State only updates when the word actually changes.
   const now = player.now
@@ -111,7 +160,6 @@ export default function StudyMode({
         if (time < words[0].start || time >= words[words.length - 1].end) continue
         let index = words.findIndex((word) => time >= word.start && time < word.end)
         if (index === -1) {
-          // Between words (a short pause): keep the word we just finished highlighted.
           for (let i = 0; i < words.length; i += 1) {
             if (time >= words[i].end) index = i
             else break
@@ -134,7 +182,6 @@ export default function StudyMode({
   const loadExplanation = (segment: Segment) => {
     if (segment.explanationFa || loading[segment.id]) return
 
-    // Audio-only mode: never call OpenRouter until a key is configured.
     if (!aiConfigured) {
       setErrors((previous) => ({
         ...previous,
@@ -215,6 +262,15 @@ export default function StudyMode({
     }
   }
 
+  const saveWarmup = async (key: string, phrase: string, meaningFa: string) => {
+    try {
+      await onSaveWord({ word: phrase, contextSentence: '', meaningFa })
+      setSavedWarmup((previous) => [...previous, key])
+    } catch {
+      // Toast handled upstream.
+    }
+  }
+
   const handleBookmark = async () => {
     const mark = await onAddBookmark()
     if (mark === null) return
@@ -227,6 +283,50 @@ export default function StudyMode({
     player.seek(segment.startSec)
     player.play()
   }
+
+  const toggleLoop = (segment: Segment) => {
+    setLoopingId((previous) => (previous === segment.id ? null : segment.id))
+  }
+
+  const answerQuiz = (questionIndex: number, optionIndex: number) => {
+    setQuizAnswers((previous) => ({ ...previous, [questionIndex]: optionIndex }))
+  }
+
+  const quiz = lesson.aiPack?.quiz ?? []
+  const quizDone = quiz.length > 0 && Object.keys(quizAnswers).length === quiz.length
+  useEffect(() => {
+    if (quizDone && !quizSentRef.current) {
+      quizSentRef.current = true
+      onCompleteQuiz()
+    }
+  }, [quizDone, onCompleteQuiz])
+
+  const submitOutput = async () => {
+    const text = outputText.trim()
+    if (!text || outputBusy) return
+    setOutputBusy(true)
+    try {
+      const feedback = await onReviewOutput(text)
+      if (feedback) setOutputFeedback(feedback)
+    } catch {
+      // Toast handled upstream.
+    } finally {
+      setOutputBusy(false)
+    }
+  }
+
+  const needsPrepare =
+    !lesson.aiPack ||
+    !lesson.transcribed ||
+    !lesson.audioCached ||
+    (lesson.transcriptVersion ?? 1) < 3
+  const isUpgrade = Boolean(lesson.transcribed) && (lesson.transcriptVersion ?? 1) < 3
+  const prepareLabel = isUpgrade ? 'Upgrade Sync & AI Pack' : 'Prepare Full Lesson'
+
+  const loopingSegment = useMemo(
+    () => lesson.segments.find((segment) => segment.id === loopingId) ?? null,
+    [lesson.segments, loopingId],
+  )
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-32">
@@ -278,7 +378,7 @@ export default function StudyMode({
           <span className="tabular-nums text-xs text-muted">{formatTime(player.duration)}</span>
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => player.skip(-5)}
@@ -309,6 +409,26 @@ export default function StudyMode({
           </button>
           <button
             type="button"
+            onClick={() => setBlindMode((value) => !value)}
+            className={`rounded-sm border px-3 py-2 text-xs transition-colors ${
+              blindMode
+                ? 'border-emerald-500 text-emerald-400'
+                : 'border-line bg-card text-ink hover:border-neutral-500'
+            }`}
+          >
+            Blind Mode
+          </button>
+          {loopingSegment && (
+            <button
+              type="button"
+              onClick={() => setLoopingId(null)}
+              className="rounded-sm border border-emerald-500 px-3 py-2 text-xs text-emerald-400 transition-colors hover:bg-emerald-500/10"
+            >
+              Looping #{loopingSegment.index + 1} ✕
+            </button>
+          )}
+          <button
+            type="button"
             onClick={() => void handleBookmark()}
             className="ml-auto rounded-sm border border-line bg-card px-3 py-2 text-xs text-ink transition-colors hover:border-neutral-500"
           >
@@ -317,15 +437,34 @@ export default function StudyMode({
         </div>
       </div>
 
-      <section className="mt-5">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
-          Bookmarks ({lesson.bookmarks.length})
-        </h3>
-        {lesson.bookmarks.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">
-            No bookmarks yet. Tap Bookmark while driving to mark a moment.
-          </p>
-        ) : (
+      {needsPrepare && (
+        <div className="mt-5 flex flex-col gap-3 rounded-md border border-emerald-500/40 bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink">
+              {isUpgrade ? 'Upgrade to synced audio & AI pack' : 'Prepare this lesson'}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-muted">
+              {preparing
+                ? 'Preparing audio, sentences & AI pack…'
+                : transcriptionConfiguredText(aiConfigured)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onPrepare}
+            disabled={preparing || !aiConfigured}
+            className="shrink-0 rounded-sm border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-[#0a0a0a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"
+          >
+            {preparing ? 'Preparing…' : prepareLabel}
+          </button>
+        </div>
+      )}
+
+      {lesson.bookmarks.length > 0 && (
+        <section className="mt-6">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
+            Bookmarks ({lesson.bookmarks.length})
+          </h3>
           <div className="mt-2 flex flex-wrap gap-2">
             {lesson.bookmarks.map((mark) => (
               <button
@@ -338,8 +477,56 @@ export default function StudyMode({
               </button>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {lesson.aiPack?.warmup && lesson.aiPack.warmup.length > 0 && (
+        <section className="mt-6 rounded-md border border-line bg-card">
+          <button
+            type="button"
+            onClick={() => setWarmupOpen((value) => !value)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <span className="text-sm font-medium text-ink">
+              Pre-Listening Warmup ({lesson.aiPack.warmup.length} Key Phrases)
+            </span>
+            <span className="text-xs text-muted">{warmupOpen ? '▲' : '▼'}</span>
+          </button>
+          {warmupOpen && (
+            <ul className="flex flex-col gap-2 border-t border-line px-4 py-3">
+              {lesson.aiPack.warmup.map((item, index) => {
+                const key = `warmup#${index}`
+                return (
+                  <li
+                    key={key}
+                    className="flex items-center justify-between gap-3 rounded-sm border border-line bg-panel px-3 py-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-[14px] text-ink" dir="ltr">
+                        {item.phrase}
+                      </span>
+                      {item.meaningFa && (
+                        <span className="fa mt-0.5 block text-[13px] text-neutral-400">
+                          {item.meaningFa}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void saveWarmup(key, item.phrase, item.meaningFa)}
+                      disabled={savedWarmup.includes(key)}
+                      className="shrink-0 rounded-sm border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:border-neutral-500 hover:text-ink disabled:opacity-50"
+                      dir="ltr"
+                    >
+                      {savedWarmup.includes(key) ? '✓ Saved' : '+ Save'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="mt-7">
         <div className="flex items-center justify-between gap-3">
@@ -362,57 +549,8 @@ export default function StudyMode({
           Tap a word to save it · tap the sentence to see the AI explanation.
         </p>
 
-        {lesson.transcribed && !lesson.audioCached && (
-          <div className="mt-3 flex flex-col gap-3 rounded-sm border border-line bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm text-ink">Audio not frozen yet</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted">
-                This transcript was synced before audio freezing. Re-sync once to lock the exact
-                MP3 bytes, so playback and timestamps can no longer drift.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onTranscribe}
-              disabled={transcribing}
-              className="shrink-0 rounded-sm border border-ink bg-ink px-4 py-2 text-sm font-medium text-bg transition-colors disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"
-            >
-              {transcribing ? 'Re-syncing…' : 'Re-sync & Freeze Audio'}
-            </button>
-          </div>
-        )}
-
-        {!lesson.transcribed && (
-          <div className="mt-3 flex flex-col gap-3 rounded-sm border border-line bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm text-ink">Full transcript with timestamps</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted">
-                {transcriptionConfigured
-                  ? 'Transcribes the MP3 through Workers AI (one call per lesson, then cached).'
-                  : 'Add the [ai] binding to wrangler.toml to enable transcription.'}
-              </p>
-              <button
-                type="button"
-                onClick={onAlign}
-                disabled={transcribing}
-                className="mt-1 text-xs text-muted underline decoration-neutral-700 underline-offset-2 transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Or only estimate timings for the current transcript — free, no API call
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={onTranscribe}
-              disabled={!transcriptionConfigured || transcribing}
-              className="shrink-0 rounded-sm border border-ink bg-ink px-4 py-2 text-sm font-medium text-bg transition-colors disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"
-            >
-              {transcribing ? 'Transcribing…' : 'Sync Full Transcript'}
-            </button>
-          </div>
-        )}
-
         <ul
-          className="mt-3 flex flex-col gap-2"
+          className="mt-3 flex flex-col gap-3"
           onWheel={markUserScroll}
           onTouchStart={markUserScroll}
         >
@@ -425,7 +563,8 @@ export default function StudyMode({
             const hasTimestamp = typeof segment.startSec === 'number'
             const quickWord = quickWords[segment.id]
             const activeIndex = activeWord?.segmentId === segment.id ? activeWord.index : -1
-            // Ordinal of the word currently being rendered, matching `segment.words` order.
+            const blinded = blindMode && !revealedIds.includes(segment.id)
+            const isLooping = loopingId === segment.id
             let wordOrdinal = -1
 
             return (
@@ -434,56 +573,83 @@ export default function StudyMode({
                 ref={(element) => {
                   itemRefs.current[segment.id] = element
                 }}
-                className={`scroll-mt-28 scroll-mb-24 overflow-hidden rounded-sm border border-line bg-card ${
-                  isActive ? 'border-l-2 border-l-ink bg-neutral-900' : ''
+                className={`scroll-mt-28 scroll-mb-24 overflow-hidden rounded-md border border-line bg-card ${
+                  isActive ? 'border-l-2 border-l-emerald-500' : ''
                 }`}
               >
-                <div className="flex items-start">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
+                  <span className="text-xs tabular-nums text-neutral-600">{segment.index + 1}</span>
                   {hasTimestamp && (
+                    <span className="text-xs tabular-nums text-muted">
+                      {formatTime(segment.startSec as number)}
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {hasTimestamp && (
+                      <button
+                        type="button"
+                        onClick={() => playFrom(segment)}
+                        title="Play from here"
+                        className="rounded-sm border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-neutral-500 hover:text-ink"
+                      >
+                        ▶
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => playFrom(segment)}
-                      title={`Play from ${formatTime(segment.startSec as number)}`}
-                      className="mt-2 ml-2 shrink-0 rounded-sm border border-line px-2 py-1 text-[11px] tabular-nums text-muted transition-colors hover:border-neutral-500 hover:text-ink"
+                      onClick={() => toggleLoop(segment)}
+                      disabled={!hasTimestamp}
+                      title="Loop sentence"
+                      className={`rounded-sm border px-2 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        isLooping
+                          ? 'border-emerald-500 text-emerald-400'
+                          : 'border-line text-muted hover:border-neutral-500 hover:text-ink'
+                      }`}
                     >
-                      ▶ {formatTime(segment.startSec as number)}
+                      ↻ Loop
                     </button>
-                  )}
-                  <div className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3">
-                    <span className="mt-1 w-6 shrink-0 text-right text-xs tabular-nums text-neutral-600">
-                      {segment.index + 1}
-                    </span>
-                    <span className="flex-1 text-[15px] leading-7 text-ink" dir="ltr">
-                      {segment.text.split(/(\s+)/).map((token, index) => {
-                        if (!token.trim()) return <span key={index}>{token}</span>
-                        const word = cleanWord(token)
-                        if (!word) return <span key={index}>{token}</span>
-                        wordOrdinal += 1
-                        const highlighted = wordOrdinal === activeIndex
-                        return (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => selectWord(segment, token)}
-                            className={`rounded-sm transition-colors ${
-                              highlighted
-                                ? 'bg-ink text-bg'
-                                : 'hover:bg-neutral-800 hover:text-white'
-                            }`}
-                          >
-                            {token}
-                          </button>
-                        )
-                      })}
-                    </span>
                     <button
                       type="button"
                       onClick={() => toggleSegment(segment)}
-                      className="mt-0.5 shrink-0 rounded-sm border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-neutral-500 hover:text-ink"
+                      className="rounded-sm border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-neutral-500 hover:text-ink"
                     >
-                      {isOpen ? 'Hide' : 'AI'}
+                      {isOpen ? 'Hide' : 'Explain'}
                     </button>
                   </div>
+                </div>
+
+                <div className="px-4 py-4">
+                  <div
+                    className={`text-[15.5px] leading-8 text-ink ${blinded ? 'blur-[5px] select-none' : ''}`}
+                    dir="ltr"
+                    onClick={blinded ? () => setRevealedIds((prev) => [...prev, segment.id]) : undefined}
+                  >
+                    {segment.text.split(/(\s+)/).map((token, index) => {
+                      if (!token.trim()) return <span key={index}>{token}</span>
+                      const word = cleanWord(token)
+                      if (!word) return <span key={index}>{token}</span>
+                      wordOrdinal += 1
+                      if (blinded) return <span key={index}>{token}</span>
+                      const highlighted = wordOrdinal === activeIndex
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => selectWord(segment, token)}
+                          className={`inline-block rounded-sm px-1.5 py-0.5 transition-colors ${
+                            highlighted
+                              ? 'bg-emerald-500 text-[#0a0a0a]'
+                              : 'hover:bg-neutral-800 hover:text-white'
+                          }`}
+                        >
+                          {token}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {blinded && (
+                    <p className="mt-2 text-[11px] text-neutral-600">Tap to reveal</p>
+                  )}
                 </div>
 
                 {quickWord && (
@@ -517,6 +683,17 @@ export default function StudyMode({
 
                     {!isLoading && !error && explanation && (
                       <div className="flex flex-col gap-3">
+                        {explanation.simpleEnglish && (
+                          <div>
+                            <p className="mb-1 text-[11px] font-medium text-emerald-400">
+                              Simpler English
+                            </p>
+                            <p className="text-[15px] text-ink" dir="ltr">
+                              {explanation.simpleEnglish}
+                            </p>
+                          </div>
+                        )}
+
                         <div>
                           <p className="mb-1 text-[11px] font-medium text-neutral-500">Meaning</p>
                           <p className="fa text-[15px] text-ink">{explanation.meaning}</p>
@@ -575,6 +752,108 @@ export default function StudyMode({
           })}
         </ul>
       </section>
+
+      {quiz.length > 0 && (
+        <section className="mt-8">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
+            Comprehension Quiz
+          </h3>
+          <div className="mt-3 flex flex-col gap-3">
+            {quiz.map((item, questionIndex) => {
+              const selected = quizAnswers[questionIndex]
+              const answered = selected !== undefined
+              return (
+                <div key={questionIndex} className="rounded-md border border-line bg-card p-4">
+                  <p className="text-sm font-medium text-ink" dir="ltr">
+                    {questionIndex + 1}. {item.question}
+                  </p>
+                  <div className="mt-3 flex flex-col gap-2">
+                    {item.options.map((option, optionIndex) => {
+                      const isCorrect = optionIndex === item.correctIndex
+                      const isSelected = selected === optionIndex
+                      let tone = 'border-line text-ink hover:border-neutral-500'
+                      if (answered) {
+                        if (isCorrect) tone = 'border-emerald-500 text-emerald-400'
+                        else if (isSelected) tone = 'border-red-500/60 text-red-400'
+                        else tone = 'border-line text-muted'
+                      }
+                      return (
+                        <button
+                          key={optionIndex}
+                          type="button"
+                          onClick={() => !answered && answerQuiz(questionIndex, optionIndex)}
+                          disabled={answered}
+                          dir="ltr"
+                          className={`rounded-sm border px-3 py-2 text-left text-sm transition-colors disabled:cursor-default ${tone}`}
+                        >
+                          {option}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {answered && item.explanationFa && (
+                    <p className="fa mt-3 text-[14px] text-neutral-300">{item.explanationFa}</p>
+                  )}
+                </div>
+              )
+            })}
+            {quizDone && (
+              <p className="text-xs text-emerald-400">Quiz complete ✓</p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {lesson.aiPack?.outputPrompt && (
+        <section className="mt-8">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
+            Output Practice
+          </h3>
+          <div className="mt-3 rounded-md border border-line bg-card p-4">
+            <p className="text-sm font-medium text-ink" dir="ltr">
+              {lesson.aiPack.outputPrompt}
+            </p>
+            <textarea
+              value={outputText}
+              onChange={(event) => setOutputText(event.target.value)}
+              rows={4}
+              dir="ltr"
+              placeholder="Type or speak your answer…"
+              className="mt-3 w-full rounded-sm border border-line bg-panel px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-neutral-600 focus:border-neutral-500"
+            />
+            <button
+              type="button"
+              onClick={() => void submitOutput()}
+              disabled={outputBusy || !outputText.trim()}
+              className="mt-3 rounded-sm border border-ink bg-ink px-4 py-2 text-sm font-medium text-bg transition-opacity disabled:cursor-not-allowed disabled:border-line disabled:bg-panel disabled:text-muted"
+            >
+              {outputBusy ? 'Reviewing…' : 'Get AI Feedback'}
+            </button>
+
+            {outputFeedback && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
+                <div>
+                  <p className="mb-1 text-[11px] font-medium text-emerald-400">Native Version</p>
+                  <p className="text-[15px] text-ink" dir="ltr">
+                    {outputFeedback.nativeVersion}
+                  </p>
+                </div>
+                <div>
+                  <p className="mb-1 text-[11px] font-medium text-neutral-500">Feedback</p>
+                  <p className="fa text-[14px] text-neutral-300">{outputFeedback.feedbackFa}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   )
+}
+
+/** Copy shown under the prepare banner when the AI binding is missing. */
+function transcriptionConfiguredText(aiConfigured: boolean): string {
+  return aiConfigured
+    ? 'Generates the full synced transcript and caches the audio, warmup and quiz once.'
+    : 'Add the [ai] binding in wrangler.toml to enable preparation.'
 }

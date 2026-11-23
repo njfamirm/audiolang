@@ -6,12 +6,21 @@ import { randomUUID } from './crypto'
  * Parsing is done with plain fetch() + tag extraction so it runs on Workers
  * without `rss-parser` or any Node-only dependency.
  */
-export const FEEDS: ReadonlyArray<{ source: string; url: string }> = [
-  { source: 'BBC 6 Minute English', url: 'https://podcasts.files.bbci.co.uk/p02pc9tn.rss' },
-  { source: 'BBC The English We Speak', url: 'https://podcasts.files.bbci.co.uk/p02pc9zn.rss' },
+export const FEEDS: ReadonlyArray<{ source: string; url: string; sourceLevel: string }> = [
+  {
+    source: 'BBC 6 Minute English',
+    url: 'https://podcasts.files.bbci.co.uk/p02pc9tn.rss',
+    sourceLevel: 'B1–B2',
+  },
+  {
+    source: 'BBC The English We Speak',
+    url: 'https://podcasts.files.bbci.co.uk/p02pc9zn.rss',
+    sourceLevel: 'B1–B2',
+  },
   {
     source: 'VOA Learning English',
     url: 'https://learningenglish.voanews.com/podcast/?zoneId=1689',
+    sourceLevel: 'A2–B1',
   },
 ]
 
@@ -143,7 +152,7 @@ function pickText(item: string): string {
   return best
 }
 
-function parseItems(xml: string, source: string, perFeed: number): Lesson[] {
+function parseItems(xml: string, source: string, sourceLevel: string, perFeed: number): Lesson[] {
   const items = xml.match(/<item\b[\s\S]*?<\/item>/gi) ?? []
   const lessons: Lesson[] = []
 
@@ -176,6 +185,7 @@ function parseItems(xml: string, source: string, perFeed: number): Lesson[] {
       bookmarks: [],
       segments,
       transcribed: false,
+      sourceLevel,
     })
   }
 
@@ -183,7 +193,7 @@ function parseItems(xml: string, source: string, perFeed: number): Lesson[] {
 }
 
 /** Fetch the latest episodes from every reachable feed, deduplicated by audio URL. */
-export async function fetchEpisodes(perFeed = 5): Promise<Lesson[]> {
+export async function fetchEpisodes(perFeed = 15): Promise<Lesson[]> {
   const results = await Promise.allSettled(
     FEEDS.map(async (feed) => {
       const response = await fetch(feed.url, {
@@ -193,7 +203,7 @@ export async function fetchEpisodes(perFeed = 5): Promise<Lesson[]> {
       })
       if (!response.ok) throw new Error(`${feed.source}: HTTP ${response.status}`)
       const xml = await response.text()
-      return parseItems(xml, feed.source, perFeed)
+      return parseItems(xml, feed.source, feed.sourceLevel, perFeed)
     }),
   )
 

@@ -1,7 +1,13 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { WORKERS_AI_MODEL, defineWord, explainSentence } from './ai'
+import {
+  WORKERS_AI_MODEL,
+  defineWord,
+  explainSentence,
+  generateLessonPack,
+  reviewOutput,
+} from './ai'
 import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
@@ -14,14 +20,22 @@ import { randomUUID } from './crypto'
 import type { Env } from './env'
 import { FEEDS, buildSegments, fetchEpisodes } from './rss'
 import {
+  bumpActivity,
   findLesson,
+  findVocabById,
   load,
   update,
   upsertVocab,
   type Lesson,
   type Segment,
 } from './store'
-import { distributeWords, transcribeAudio, transcriptionConfigured } from './transcribe'
+import {
+  CURRENT_TRANSCRIPT_VERSION,
+  distributeWords,
+  transcribeAudio,
+  transcribeBuffer,
+  transcriptionConfigured,
+} from './transcribe'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -53,8 +67,8 @@ app.onError((error, c) => {
 app.get('/api/health', (c) =>
   c.json({
     ok: true,
-    // Explanations and definitions run on the Workers AI binding.
-    aiConfigured: Boolean(c.env.AI),
+    // Explanations and definitions run on Workers AI, with a Groq (then OpenRouter) fallback.
+    aiConfigured: Boolean(c.env.AI) || Boolean(c.env.GROQ_API_KEY) || Boolean(c.env.OPENROUTER_API_KEY),
     transcriptionConfigured: transcriptionConfigured(c.env),
     whisperConfigured: Boolean(c.env.AI),
     model: WORKERS_AI_MODEL,
@@ -208,11 +222,17 @@ app.get('/api/lessons/:id/audio', async (c) => {
 
 app.get('/api/lessons', async (c) => {
   const store = await load(c.env)
-  return c.json({ lessons: store.lessons })
+  return c.json({ lessons: store.lessons, activityLog: store.activityLog ?? {} })
+})
+
+/** Daily activity counters for the 30-day heatmap and streak. */
+app.get('/api/stats', async (c) => {
+  const store = await load(c.env)
+  return c.json({ activityLog: store.activityLog ?? {} })
 })
 
 app.post('/api/lessons/sync', async (c) => {
-  const fetched = await fetchEpisodes(5)
+  const fetched = await fetchEpisodes(15)
   const result = await update(c.env, (current) => {
     const existing = new Set(current.lessons.map((lesson) => lesson.audioUrl))
     let added = 0
@@ -263,9 +283,15 @@ app.post('/api/lessons/custom', async (c) => {
 
 app.patch('/api/lessons/:id/progress', async (c) => {
   const id = c.req.param('id')
-  const body = await c.req.json<{ lastPositionSec?: number; addBookmarkSec?: number }>()
+  const body = await c.req.json<{
+    lastPositionSec?: number
+    addBookmarkSec?: number
+    durationSec?: number
+    listenDeltaSec?: number
+    quizCompleted?: boolean
+  }>()
 
-  const lesson = await update(c.env, (store) => {
+  const result = await update(c.env, (store) => {
     const target = findLesson(store, id)
     if (!target) return null
     if (typeof body.lastPositionSec === 'number' && Number.isFinite(body.lastPositionSec)) {
@@ -278,11 +304,21 @@ app.patch('/api/lessons/:id/progress', async (c) => {
         target.bookmarks.sort((a, b) => a - b)
       }
     }
-    return target
+    if (typeof body.durationSec === 'number' && Number.isFinite(body.durationSec)) {
+      target.durationSec = Math.max(0, Math.round(body.durationSec))
+    }
+    if (typeof body.quizCompleted === 'boolean') {
+      target.quizCompleted = body.quizCompleted
+    }
+    if (typeof body.listenDeltaSec === 'number' && Number.isFinite(body.listenDeltaSec)) {
+      const delta = Math.max(0, Math.round(body.listenDeltaSec))
+      if (delta > 0) bumpActivity(store, { listenSec: delta })
+    }
+    return { lesson: target, activityLog: store.activityLog ?? {} }
   })
 
-  if (!lesson) return c.json({ error: 'Lesson not found' }, 404)
-  return c.json({ lesson })
+  if (!result) return c.json({ error: 'Lesson not found' }, 404)
+  return c.json(result)
 })
 
 app.post('/api/lessons/:id/transcribe', async (c) => {
@@ -297,8 +333,12 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
   const lesson = findLesson(store, id)
   if (!lesson) return c.json({ error: 'Lesson not found' }, 404)
 
-  // Cache hit: transcript + frozen audio already stored. Zero AI cost, zero KV write.
-  if (lesson.transcribed && lesson.audioCached) {
+  // Cache hit: transcript + frozen audio already stored at the current version. Zero AI cost.
+  if (
+    lesson.transcribed &&
+    lesson.audioCached &&
+    (lesson.transcriptVersion ?? 1) >= CURRENT_TRANSCRIPT_VERSION
+  ) {
     return c.json({ lesson, cached: true })
   }
 
@@ -331,6 +371,9 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
   let audioCached = true
   try {
     await c.env.STORE_KV.put(`audio:${id}`, result.audio)
+    if (c.env.AUDIO_BUCKET) {
+      await c.env.AUDIO_BUCKET.put(`lessons/${id}.mp3`, result.audio)
+    }
   } catch (error) {
     audioCached = false
     console.error('[kv] Could not freeze audio:', error)
@@ -352,11 +395,173 @@ app.post('/api/lessons/:id/transcribe', async (c) => {
     target.transcribed = true
     target.audioCached = audioCached
     target.timingApprox = result.timingApprox
+    target.transcriptVersion = CURRENT_TRANSCRIPT_VERSION
     return target
   })
 
   if (!updated) return c.json({ error: 'Lesson not found' }, 404)
   return c.json({ lesson: updated, cached: false })
+})
+
+/**
+ * On-demand "prepare" for a single lesson: transcribe (with sentence merging) and generate the
+ * AI lesson pack, cached so later visits cost zero AI. Nothing is generated during RSS sync.
+ */
+app.post('/api/lessons/:id/prepare', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req
+    .json<{ durationSec?: number }>()
+    .catch(() => ({}) as { durationSec?: number })
+  const durationSec =
+    typeof body.durationSec === 'number' && Number.isFinite(body.durationSec) ? body.durationSec : 0
+
+  const store = await load(c.env)
+  const lesson = findLesson(store, id)
+  if (!lesson) return c.json({ error: 'Lesson not found' }, 404)
+
+  const version = lesson.transcriptVersion ?? 1
+  const needsTranscript =
+    !lesson.transcribed || !lesson.audioCached || version < CURRENT_TRANSCRIPT_VERSION
+  const needsPack = !lesson.aiPack
+
+  if (!needsTranscript && !needsPack) {
+    return c.json({ lesson, cached: true })
+  }
+
+  if (needsTranscript && !transcriptionConfigured(c.env)) {
+    return c.json(
+      {
+        error:
+          'Workers AI is not configured. Add the `[ai]` binding block to wrangler.toml and deploy again.',
+      },
+      400,
+    )
+  }
+
+  // Step A: use the frozen MP3 when available (R2 first, then KV); otherwise download + freeze.
+  let transcript: Awaited<ReturnType<typeof transcribeBuffer>> | null = null
+  if (needsTranscript) {
+    let audio: ArrayBuffer | null = null
+    if (lesson.audioCached) {
+      if (c.env.AUDIO_BUCKET) {
+        const object = await c.env.AUDIO_BUCKET.get(`lessons/${id}.mp3`)
+        if (object) audio = await object.arrayBuffer()
+      }
+      if (!audio) {
+        audio = await c.env.STORE_KV.get(`audio:${id}`, { type: 'arrayBuffer' })
+      }
+    }
+    try {
+      transcript =
+        audio && audio.byteLength > 0
+          ? await transcribeBuffer(c.env, audio, durationSec)
+          : await transcribeAudio(c.env, lesson.audioUrl, durationSec)
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Transcription failed' },
+        502,
+      )
+    }
+    if (transcript.segments.length === 0) {
+      return c.json({ error: 'The model returned no speech segments for this audio.' }, 502)
+    }
+  }
+
+  // Freeze the exact bytes that were transcribed so playback and timestamps never drift.
+  let audioCached = lesson.audioCached ?? false
+  if (transcript) {
+    audioCached = false
+    try {
+      await c.env.STORE_KV.put(`audio:${id}`, transcript.audio)
+      if (c.env.AUDIO_BUCKET) {
+        await c.env.AUDIO_BUCKET.put(`lessons/${id}.mp3`, transcript.audio)
+      }
+      audioCached = true
+    } catch (error) {
+      console.error('[prepare] could not freeze audio:', error)
+    }
+  }
+
+  // Persist transcript + lesson pack in a single KV write.
+  const updated = await update(c.env, async (current) => {
+    const target = findLesson(current, id)
+    if (!target) return null
+
+    if (transcript) {
+      target.segments = transcript.segments.map((segment, index) => ({
+        id: randomUUID(),
+        index,
+        text: segment.text,
+        startSec: segment.start,
+        endSec: segment.end,
+        words: segment.words,
+        explanationFa: null,
+      }))
+      target.transcribed = true
+      target.audioCached = audioCached
+      target.timingApprox = transcript.timingApprox
+      target.transcriptVersion = CURRENT_TRANSCRIPT_VERSION
+      if (durationSec > 0) target.durationSec = Math.round(durationSec)
+    }
+
+    // Step B: on-demand lesson pack (skipped when already cached).
+    if (!target.aiPack) {
+      const fullText = target.segments.map((segment) => segment.text).join(' ')
+      try {
+        const pack = await generateLessonPack(c.env, target.title, fullText)
+        target.aiPack = { warmup: pack.warmup, quiz: pack.quiz, outputPrompt: pack.outputPrompt }
+        target.cefrLevel = pack.cefrLevel
+        target.topic = pack.topic
+      } catch (error) {
+        console.error('[prepare] lesson pack failed:', error)
+      }
+    }
+    return target
+  })
+
+  if (!updated) return c.json({ error: 'Lesson not found' }, 404)
+  return c.json({ lesson: updated })
+})
+
+/** Review the learner's written output and cache the feedback on the lesson. */
+app.post('/api/lessons/:id/output-feedback', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req
+    .json<{ userText?: string }>()
+    .catch(() => ({}) as { userText?: string })
+  const userText = body.userText?.trim()
+  if (!userText) return c.json({ error: 'userText is required' }, 400)
+
+  const store = await load(c.env)
+  const lesson = findLesson(store, id)
+  if (!lesson) return c.json({ error: 'Lesson not found' }, 404)
+
+  const prompt = lesson.aiPack?.outputPrompt ?? `Talk about this episode: ${lesson.title}`
+
+  let feedback: { nativeVersion: string; feedbackFa: string }
+  try {
+    feedback = await reviewOutput(c.env, lesson.title, prompt, userText)
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Could not review this answer' },
+      502,
+    )
+  }
+
+  const result = await update(c.env, (current) => {
+    const target = findLesson(current, id)
+    if (!target) return null
+    target.lastOutputFeedback = {
+      userText,
+      nativeVersion: feedback.nativeVersion,
+      feedbackFa: feedback.feedbackFa,
+    }
+    target.outputCompleted = true
+    return { lesson: target, feedback }
+  })
+
+  if (!result) return c.json({ error: 'Lesson not found' }, 404)
+  return c.json(result)
 })
 
 app.post('/api/lessons/:id/align', async (c) => {
@@ -480,6 +685,51 @@ app.post('/api/vocab/define', async (c) => {
     return { item, vocab: store.vocab }
   })
   return c.json(result, 201)
+})
+
+/** Record a spaced-repetition review and reschedule the item. */
+app.post('/api/vocab/:id/review', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req
+    .json<{ rating?: 'again' | 'good' | 'easy' }>()
+    .catch(() => ({}) as { rating?: 'again' | 'good' | 'easy' })
+  const rating = body.rating
+  if (rating !== 'again' && rating !== 'good' && rating !== 'easy') {
+    return c.json({ error: "rating must be 'again', 'good' or 'easy'" }, 400)
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const result = await update(c.env, (store) => {
+    const item = findVocabById(store, id)
+    if (!item) return null
+
+    const now = Date.now()
+    const streak = item.correctStreak ?? 0
+    const interval = item.intervalDays ?? 0
+
+    if (rating === 'again') {
+      item.correctStreak = 0
+      item.intervalDays = 0
+      item.stage = 'learning'
+      item.nextReviewAt = new Date(now + 10 * 60 * 1000).toISOString()
+    } else if (rating === 'good') {
+      item.correctStreak = streak + 1
+      item.intervalDays = Math.max(1, (interval || 1) * 2)
+      item.stage = item.correctStreak >= 3 ? 'mastered' : 'learning'
+      item.nextReviewAt = new Date(now + item.intervalDays * DAY_MS).toISOString()
+    } else {
+      item.correctStreak = streak + 1
+      item.intervalDays = Math.max(3, (interval || 1) * 3)
+      item.stage = item.correctStreak >= 3 ? 'mastered' : 'learning'
+      item.nextReviewAt = new Date(now + item.intervalDays * DAY_MS).toISOString()
+    }
+
+    bumpActivity(store, { reviews: 1 })
+    return { item, vocab: store.vocab, activityLog: store.activityLog ?? {} }
+  })
+
+  if (!result) return c.json({ error: 'Vocabulary item not found' }, 404)
+  return c.json(result)
 })
 
 app.delete('/api/vocab/:id', async (c) => {

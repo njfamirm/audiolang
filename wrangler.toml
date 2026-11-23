@@ -17,6 +17,12 @@ not_found_handling = "single-page-application"
 binding = "STORE_KV"
 id = "970b4d21c65640f39260650dd0f7c015"
 
+# NOTE: R2 (AUDIO_BUCKET) is intentionally not bound — the account has R2 disabled.
+# Frozen lesson MP3s fall back to STORE_KV; re-add the binding once R2 is enabled:
+#   [[r2_buckets]]
+#   binding = "AUDIO_BUCKET"
+#   bucket_name = "audiolang-audio"
+
 [[routes]]
 pattern = "audiolang.njfamirm.ir"
 custom_domain = true
